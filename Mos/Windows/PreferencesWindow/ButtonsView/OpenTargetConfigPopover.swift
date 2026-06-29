@@ -134,11 +134,7 @@ final class OpenTargetConfigPopover: NSObject {
         args.bezelStyle = .roundedBezel
         args.placeholderString = NSLocalizedString("open-target-arguments-placeholder", comment: "")
         args.stringValue = initialArgs
-        if #available(macOS 10.15, *) {
-            args.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        } else {
-            args.font = NSFont(name: "Menlo", size: 12) ?? NSFont.systemFont(ofSize: 12)
-        }
+        args.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         self.argsField = args
 
         // Args section (NSStackView): 隐藏所有 arrangedSubviews 时自身 intrinsic height = 0,
@@ -211,7 +207,7 @@ final class OpenTargetConfigPopover: NSObject {
         stack.alignment = .centerY
         stack.spacing = 6
 
-        if #available(macOS 11.0, *), let symbol = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil) {
+        if let symbol = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil) {
             let imageView = NSImageView(image: symbol)
             imageView.contentTintColor = NSColor.systemOrange
             stack.addArrangedSubview(imageView)
@@ -605,9 +601,7 @@ final class FileSlotView: NSView {
         let placeholder = NSImageView()
         placeholder.image = Self.placeholderImage()
         placeholder.imageScaling = .scaleProportionallyUpOrDown
-        if #available(macOS 10.14, *) {
-            placeholder.contentTintColor = NSColor.tertiaryLabelColor
-        }
+        placeholder.contentTintColor = NSColor.tertiaryLabelColor
         placeholder.translatesAutoresizingMaskIntoConstraints = false
 
         let primary = NSTextField(labelWithString: NSLocalizedString("open-target-empty-primary", comment: ""))
@@ -635,14 +629,11 @@ final class FileSlotView: NSView {
     }
 
     private static func placeholderImage() -> NSImage? {
-        if #available(macOS 11.0, *),
-           let symbol = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil) {
+        if let symbol = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil) {
             symbol.isTemplate = true
             return symbol
         }
-        let icon = NSWorkspace.shared.icon(forFileType: "app")
-        icon.size = NSSize(width: 24, height: 24)
-        return icon
+        return nil
     }
 
     // MARK: Filled subview
@@ -686,11 +677,7 @@ final class FileSlotView: NSView {
         clearBtn.tag = 99  // used in mouseDown hit test
         clearBtn.bezelStyle = .inline
         clearBtn.isBordered = false
-        if #available(macOS 11.0, *) {
-            clearBtn.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
-        } else {
-            clearBtn.title = "✕"
-        }
+        clearBtn.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
         clearBtn.toolTip = NSLocalizedString("open-target-clear-tooltip", comment: "")
         clearBtn.target = self
         clearBtn.action = #selector(onClearClicked)
@@ -770,10 +757,7 @@ final class FileSlotView: NSView {
     }
 
     private var accentColor: NSColor {
-        if #available(macOS 10.14, *) {
-            return NSColor.controlAccentColor
-        }
-        return NSColor.alternateSelectedControlColor
+        return NSColor.controlAccentColor
     }
 
     private func animateScale(to scale: CGFloat) {
@@ -873,7 +857,6 @@ private final class HoverableClearButton: NSButton {
     }
 
     private func applyTint(hovering: Bool, animated: Bool) {
-        guard #available(macOS 10.14, *) else { return }
         if animated {
             CATransaction.begin()
             CATransaction.setAnimationDuration(0.22)

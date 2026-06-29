@@ -33,7 +33,7 @@ class PrimaryButton: NSControl {
             userInfo: nil
         ))
 
-        // 监听外观变化 (兼容 macOS 10.13+)
+        // 监听外观变化
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appearanceChanged),

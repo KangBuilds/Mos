@@ -10,8 +10,7 @@
 import Foundation
 
 /// What kind of action a wizard step performs.
-/// Closure-based instead of async/await to stay compatible with
-/// macOS 10.13 deployment target.
+/// Closure-based so wizard steps can bridge physical confirmation callbacks.
 enum StepKind {
     case automatic(detail: String,
                    run: (@escaping (StepOutcome) -> Void) -> Void)
