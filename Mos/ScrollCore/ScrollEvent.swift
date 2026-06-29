@@ -63,8 +63,10 @@ extension ScrollEvent {
         if isTrackpadCallCount % isTrackpadCallSamplingRate == 0 {
             ScrollEvent.isTrackpadCallCache = false
             // 根据滚动特征值判定
-            if (event.getDoubleValueField(.scrollWheelEventMomentumPhase) != 0.0) || (event.getDoubleValueField(.scrollWheelEventScrollPhase) != 0.0) {
-                // MomentumPhase 或 ScrollPhase 任一不为零, 则为触控板
+            if (event.getDoubleValueField(.scrollWheelEventMomentumPhase) != 0.0) ||
+                (event.getDoubleValueField(.scrollWheelEventScrollPhase) != 0.0) ||
+                (event.getDoubleValueField(.scrollWheelEventIsContinuous) != 0.0) {
+                // MomentumPhase、ScrollPhase 或 IsContinuous 任一不为零, 则为触控板
                 ScrollEvent.isTrackpadCallCache = true
             } else if event.getDoubleValueField(.scrollWheelEventScrollCount) != 0.0 {
                 // 累计加速度不为零, 则为触控板

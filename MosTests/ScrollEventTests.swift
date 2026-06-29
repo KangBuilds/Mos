@@ -15,7 +15,8 @@ final class ScrollEventTests: XCTestCase {
     /// 创建滚动事件并设置指定轴的值
     private func makeScrollEvent(
         deltaAxis1: Int64 = 0, ptDeltaAxis1: Double = 0.0, fixPtDeltaAxis1: Double = 0.0,
-        deltaAxis2: Int64 = 0, ptDeltaAxis2: Double = 0.0, fixPtDeltaAxis2: Double = 0.0
+        deltaAxis2: Int64 = 0, ptDeltaAxis2: Double = 0.0, fixPtDeltaAxis2: Double = 0.0,
+        isContinuous: Double = 0.0
     ) -> CGEvent? {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 0, wheel3: 0) else {
             return nil
@@ -26,6 +27,7 @@ final class ScrollEventTests: XCTestCase {
         event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: deltaAxis2)
         event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: ptDeltaAxis2)
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: fixPtDeltaAxis2)
+        event.setDoubleValueField(.scrollWheelEventIsContinuous, value: isContinuous)
         return event
     }
 
@@ -255,5 +257,23 @@ final class ScrollEventTests: XCTestCase {
         XCTAssertFalse(data.fixed)
         XCTAssertFalse(data.valid)
         XCTAssertEqual(data.usableValue, 0.0)
+    }
+
+    // MARK: - isTrackpad
+
+    func testIsTrackpad_continuousScrollIsTrackpad() throws {
+        let cgEvent = try XCTUnwrap(makeScrollEvent(deltaAxis1: 1, isContinuous: 1.0))
+        ScrollEvent.isTrackpadCallCache = false
+        ScrollEvent.isTrackpadCallCount = ScrollEvent.isTrackpadCallSamplingRate - 1
+
+        XCTAssertTrue(ScrollEvent.isTrackpad(with: cgEvent))
+    }
+
+    func testIsTrackpad_plainWheelIsMouse() throws {
+        let cgEvent = try XCTUnwrap(makeScrollEvent(deltaAxis1: 1))
+        ScrollEvent.isTrackpadCallCache = true
+        ScrollEvent.isTrackpadCallCount = ScrollEvent.isTrackpadCallSamplingRate - 1
+
+        XCTAssertFalse(ScrollEvent.isTrackpad(with: cgEvent))
     }
 }
