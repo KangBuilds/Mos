@@ -289,8 +289,18 @@ class LogiDeviceSession {
         if !isBLE {
             return usagePage == 0xFF00 || usagePage == 0xFF43 || usagePage == 0xFFC0
         }
-        // BLE: HID++ 复用标准 mouse interface
-        return usagePage == 0x0001 && usage == 0x0002
+        return Self.isBLEHIDPPCandidate(
+            productId: deviceInfo.productId,
+            usagePage: usagePage,
+            usage: usage
+        )
+    }
+
+    private static func isBLEHIDPPCandidate(productId: UInt16, usagePage: Int, usage: Int) -> Bool {
+        // BLE: HID++ usually reuses the standard mouse interface.
+        if usagePage == 0x0001 && usage == 0x0002 { return true }
+        // MX Anywhere 2S exposes its BLE HID++ interface as keyboard usage.
+        return productId == 0xB01A && usagePage == 0x0001 && usage == 0x0006
     }
 
     /// CID set last passed to setControlReporting. Diffed against next applyUsage's
@@ -838,6 +848,10 @@ class LogiDeviceSession {
             reprogInitComplete: reprogInitComplete,
             hasInflightWork: hasInflightWork
         )
+    }
+
+    internal static func isBLEHIDPPCandidateForTests(productId: UInt16, usagePage: Int, usage: Int) -> Bool {
+        return isBLEHIDPPCandidate(productId: productId, usagePage: usagePage, usage: usage)
     }
     #endif
 
