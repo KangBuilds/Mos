@@ -40,7 +40,6 @@ enum StepOutcome {
 
 /// Read-only description of a session reachable for the wizard.
 enum DetectedConnection {
-    case bolt(snapshot: LogiDeviceSessionSnapshot, slot: UInt8, name: String)
     case bleDirect(snapshot: LogiDeviceSessionSnapshot, name: String)
 }
 
@@ -57,42 +56,31 @@ struct Step {
 final class LogiSelfTestRunner {
 
     /// Inspect the first active session and classify connection mode.
-    /// Returns nil when no session is reachable or when mode is unsupported.
+    /// Returns nil when no session is reachable.
     func detectConnection() -> DetectedConnection? {
         guard let snapshot = LogiCenter.shared.activeSessionsSnapshot().first else { return nil }
-        switch snapshot.connectionMode {
-        case .receiver:
-            guard let firstConnected = snapshot.pairedDevices.first(where: { $0.isConnected }) else { return nil }
-            return .bolt(snapshot: snapshot, slot: firstConnected.slot, name: firstConnected.name)
-        case .bleDirect:
-            return .bleDirect(snapshot: snapshot, name: snapshot.deviceInfo.name)
-        case .unsupported:
-            return nil
-        }
+        return .bleDirect(snapshot: snapshot, name: snapshot.deviceInfo.name)
     }
 
-    // TODO: buildBLESuite() / runStep(_:) / handleCancel()
-    // Spec §7 Tier 3c enumerates the full step lists; current
-    // buildBoltSuite() is a minimal 2-step example.
+    // TODO: runStep(_:) / handleCancel()
 }
 
 extension LogiSelfTestRunner {
 
-    /// Minimal Bolt suite — 2 example steps. Future expansion adds the
-    /// full §7 Tier 3c step list.
-    func buildBoltSuite() -> [Step] {
+    /// Minimal BLE suite for the dedicated MX Anywhere 2S Bluetooth fork.
+    func buildBLESuite() -> [Step] {
         var steps: [Step] = []
         steps.append(Step(
             index: 1, total: 2,
-            title: "Bolt receiver detection",
-            instruction: "Confirm a Logi Bolt receiver is connected and a paired device is reachable.",
-            expectation: "LogiCenter reports an active session whose connectionMode == .receiver.",
-            kind: .automatic(detail: "Reads detectConnection() and asserts a .bolt result.") { completion in
+            title: "BLE device detection",
+            instruction: "Confirm the MX Anywhere 2S is connected over Bluetooth.",
+            expectation: "LogiCenter reports an active BLE session.",
+            kind: .automatic(detail: "Reads detectConnection() and asserts a .bleDirect result.") { completion in
                 let outcome: StepOutcome
-                if case .bolt = self.detectConnection() {
+                if case .bleDirect = self.detectConnection() {
                     outcome = .pass
                 } else {
-                    outcome = .fail(reason: "detectConnection did not return .bolt")
+                    outcome = .fail(reason: "detectConnection did not return .bleDirect")
                 }
                 completion(outcome)
             }

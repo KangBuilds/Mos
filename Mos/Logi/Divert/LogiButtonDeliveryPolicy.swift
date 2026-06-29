@@ -38,18 +38,11 @@ struct LogiButtonDeliveryPolicy {
         cid: UInt16,
         phase: LogiButtonDeliveryPhase
     ) -> Bool {
-        switch transport {
-        case .receiver:
-            return true
-        case .unsupported:
+        if standardMouseButtonsUseNativeEvents,
+           LogiCIDDirectory.nativeMouseButton(forCID: cid) != nil {
             return false
-        case .bleDirect:
-            if standardMouseButtonsUseNativeEvents,
-               LogiCIDDirectory.nativeMouseButton(forCID: cid) != nil {
-                return false
-            }
-            return true
         }
+        return true
     }
 
     private static func boolDefaultingTrue(forKey key: String) -> Bool {

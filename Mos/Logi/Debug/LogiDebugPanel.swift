@@ -302,7 +302,7 @@ class LogiDebugPanel: NSObject {
 
     private class DeviceNode {
         let session: LogiDeviceSession
-        var isReceiver: Bool { session.connectionMode == .receiver }
+        var isReceiver: Bool { false }
         init(session: LogiDeviceSession) { self.session = session }
     }
 
@@ -1525,7 +1525,6 @@ class LogiDebugPanel: NSObject {
             expandedSessionIDs = []
         }
         deviceNodes = sessions
-            .filter { $0.connectionMode != .unsupported }
             .map { DeviceNode(session: $0) }
         outlineView?.reloadData()
         for node in deviceNodes where node.isReceiver {
@@ -1609,26 +1608,13 @@ class LogiDebugPanel: NSObject {
     /// Receiver session 在指向某个 slot peripheral 时, 返回 "<peripheral name> (0xWPID)";
     /// 否则返回 "--".
     private func targetDisplay(for session: LogiDeviceSession) -> String {
-        guard session.connectionMode == .receiver,
-              session.debugDeviceIndex >= 1, session.debugDeviceIndex <= 6 else {
-            return "--"
-        }
-        let idx = Int(session.debugDeviceIndex) - 1
-        let paired = session.debugReceiverPairedDevices
-        guard idx < paired.count, paired[idx].isConnected else { return "--" }
-        let dev = paired[idx]
-        let nameSegment = dev.name.isEmpty ? "Slot \(dev.slot)" : dev.name
-        return dev.wirelessPID == 0
-            ? nameSegment
-            : String(format: "%@ (0x%04X)", nameSegment, dev.wirelessPID)
+        return "--"
     }
 
     /// Receiver 的 device 标头被选中时, features/controls 语义上属于被 target 的某个 slot,
     /// 不应挂在 receiver 名下显示. 用 sidebar 当前选择来判断, 保证所有刷新入口
     /// (click / sessionChanged / reportingQueryDidComplete 等) 一致清空, 避免残留上轮 slot 数据.
     private func isReceiverHeaderSelected() -> Bool {
-        guard let s = currentSession, s.connectionMode == .receiver else { return false }
-        if case .device? = currentSidebarSelection() { return true }
         return false
     }
 

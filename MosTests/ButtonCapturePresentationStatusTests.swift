@@ -11,27 +11,11 @@ final class ButtonCapturePresentationStatusTests: XCTestCase {
         cid: 0x0053
     )
 
-    private let receiverKey = LogiOwnershipKey(
-        vendorId: 0x046D,
-        productId: 0xC548,
-        name: "Bolt Mouse",
-        transport: .receiver,
-        cid: 0x0053
-    )
-
     private let bleDPIKey = LogiOwnershipKey(
         vendorId: 0x046D,
         productId: 0xB034,
         name: "BLE Mouse",
         transport: .bleDirect,
-        cid: 0x00FD
-    )
-
-    private let receiverDPIKey = LogiOwnershipKey(
-        vendorId: 0x046D,
-        productId: 0xC548,
-        name: "Bolt Mouse",
-        transport: .receiver,
         cid: 0x00FD
     )
 
@@ -95,17 +79,6 @@ final class ButtonCapturePresentationStatusTests: XCTestCase {
         XCTAssertEqual(ButtonCapturePresentationStatus.from(diagnosis), .standardMouseAliasAvailable)
     }
 
-    func testDiagnosisDoesNotUseStandardMouseAliasForReceiverContention() {
-        let diagnosis = LogiButtonCaptureDiagnosis(
-            ownership: .mosOwned,
-            delivery: .contended,
-            ownershipKey: receiverKey,
-            nativeMouseButton: 3
-        )
-
-        XCTAssertEqual(ButtonCapturePresentationStatus.from(diagnosis), .contended)
-    }
-
     func testDiagnosisDoesNotUseStandardMouseAliasWithoutLiveContention() {
         let diagnosis = LogiButtonCaptureDiagnosis(
             ownership: .clear,
@@ -141,18 +114,6 @@ final class ButtonCapturePresentationStatusTests: XCTestCase {
         XCTAssertEqual(ButtonCapturePresentationStatus.from(diagnosis), .bleHIDPPUnstable)
     }
 
-    func testReceiverHIDPPOnlyControlDoesNotShowBLERisk() {
-        let diagnosis = LogiButtonCaptureDiagnosis(
-            ownership: .mosOwned,
-            delivery: .hidpp,
-            ownershipKey: receiverDPIKey,
-            nativeMouseButton: nil,
-            usesNativeEvents: false
-        )
-
-        XCTAssertEqual(ButtonCapturePresentationStatus.from(diagnosis), .normal)
-    }
-
     func testConfirmedHIDPPConflictTakesPriorityOverBLERisk() {
         let diagnosis = LogiButtonCaptureDiagnosis(
             ownership: .foreignDivert,
@@ -165,15 +126,4 @@ final class ButtonCapturePresentationStatusTests: XCTestCase {
         XCTAssertEqual(ButtonCapturePresentationStatus.from(diagnosis), .conflict(.foreignDivert))
     }
 
-    func testReceiverStandardAliasDoesNotShowStandardMouseAliasMigration() {
-        let diagnosis = LogiButtonCaptureDiagnosis(
-            ownership: .mosOwned,
-            delivery: .hidpp,
-            ownershipKey: receiverKey,
-            nativeMouseButton: 3,
-            usesNativeEvents: false
-        )
-
-        XCTAssertEqual(ButtonCapturePresentationStatus.from(diagnosis), .normal)
-    }
 }

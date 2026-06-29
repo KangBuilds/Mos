@@ -23,6 +23,7 @@ internal class LogiSessionManager {
 
     // MARK: - Constants
     static let logitechVendorId: Int = 0x046D
+    static let mxAnywhere2SBLEProductId: Int = 0xB01A
     static let buttonEventNotification = NSNotification.Name("LogiButtonEvent")
 
     // MARK: - State
@@ -43,9 +44,10 @@ internal class LogiSessionManager {
             return
         }
 
-        // 只匹配 Logitech 设备
+        // Bluetooth-only MX Anywhere 2S fork: do not wake up for receivers or other Logitech devices.
         let matchDict: [String: Any] = [
-            kIOHIDVendorIDKey as String: LogiSessionManager.logitechVendorId
+            kIOHIDVendorIDKey as String: LogiSessionManager.logitechVendorId,
+            kIOHIDProductIDKey as String: LogiSessionManager.mxAnywhere2SBLEProductId,
         ]
         IOHIDManagerSetDeviceMatching(manager, matchDict as CFDictionary)
 
@@ -109,8 +111,16 @@ internal class LogiSessionManager {
         let vendorId = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
         let productId = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
         let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Unknown"
+        let transport = IOHIDDeviceGetProperty(device, kIOHIDTransportKey as CFString) as? String ?? ""
 
         LogiDebugPanel.log("[LogitechHID] Device connected: \(productName) (VID: \(String(format: "0x%04X", vendorId)), PID: \(String(format: "0x%04X", productId)))")
+
+        guard vendorId == Self.logitechVendorId,
+              productId == Self.mxAnywhere2SBLEProductId,
+              transport.lowercased().contains("bluetooth") else {
+            LogiDebugPanel.log("[LogitechHID] Skipping non-Bluetooth MX Anywhere 2S interface")
+            return
+        }
 
         // 避免重复会话
         guard sessions[device] == nil else { return }
@@ -278,14 +288,7 @@ internal class LogiSessionManager {
         transport: LogiTransportIdentity,
         receiverTargetConnected: Bool
     ) -> Int {
-        switch transport {
-        case .receiver:
-            return receiverTargetConnected ? 0 : 3
-        case .bleDirect:
-            return 1
-        case .unsupported:
-            return 4
-        }
+        return 0
     }
 
     #if DEBUG

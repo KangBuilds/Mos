@@ -37,7 +37,7 @@ final class LogiSelfTestWizard {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        steps = runner.buildBoltSuite()    // future: detect + pick suite
+        steps = runner.buildBLESuite()
         currentIndex = 0
         lastOutcome = nil
         buildWindow()
@@ -149,7 +149,7 @@ final class LogiSelfTestWizard {
         case .physicalAutoVerified(_, _, let wait, let timeout):
             startWait(wait, timeout: timeout)
         case .physicalUserConfirmed:
-            // Not used in the minimal Bolt suite; treat as pass for now.
+            // Not used in the minimal BLE suite; treat as pass for now.
             handleOutcome(.pass)
         }
     }

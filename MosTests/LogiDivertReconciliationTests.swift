@@ -163,19 +163,6 @@ final class LogiDivertReconciliationTests: XCTestCase {
         XCTAssertEqual(nativeFirst, [0x0053, 0x0056])
     }
 
-    func testReceiverPolicyKeepsNativeBackInNormalTargets() {
-        let target = LogiDeviceSession.targetCIDsForUsageForTests(
-            aggregateMosCodes: [1006, 1002],
-            divertableCIDs: [0x0053, 0x00D7],
-            transport: .receiver,
-            phase: .normal,
-            policy: LogiButtonDeliveryPolicy(standardMouseButtonsUseNativeEvents: true),
-            deliveryModeForCID: { _ in .hidpp }
-        )
-
-        XCTAssertEqual(target, [0x0053, 0x00D7])
-    }
-
     func testRecordingPlannerUndivertsPreviouslyAppliedBLEStandardAlias() {
         let result = LogiDeviceSession.recordingDivertPlanForTests(
             divertableCIDs: [0x0053, 0x00D7],
@@ -202,16 +189,4 @@ final class LogiDivertReconciliationTests: XCTestCase {
         XCTAssertEqual(result.toUndivert, [0x0053, 0x0056])
     }
 
-    func testRecordingPlannerKeepsReceiverStandardAlias() {
-        let result = LogiDeviceSession.recordingDivertPlanForTests(
-            divertableCIDs: [0x0053, 0x00D7],
-            lastApplied: [0x0053],
-            transport: .receiver,
-            policy: LogiButtonDeliveryPolicy(standardMouseButtonsUseNativeEvents: true)
-        )
-
-        XCTAssertEqual(result.desired, [0x0053, 0x00D7])
-        XCTAssertEqual(result.toDivert, [0x00D7])
-        XCTAssertEqual(result.toUndivert, [])
-    }
 }

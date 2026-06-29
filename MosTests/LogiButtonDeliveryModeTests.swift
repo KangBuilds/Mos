@@ -23,16 +23,6 @@ final class LogiButtonDeliveryModeTests: XCTestCase {
         ))
     }
 
-    func testReceiverStandardAliasStillUsesHIDPP() {
-        let policy = LogiButtonDeliveryPolicy.default
-
-        XCTAssertTrue(policy.shouldUseHIDPPDelivery(
-            transport: .receiver,
-            cid: 0x0053,
-            phase: .normal
-        ))
-    }
-
     func testInitialModeIsHIDPP() {
         let store = LogiButtonDeliveryModeStore()
         let key = LogiOwnershipKey(
@@ -171,27 +161,13 @@ final class LogiButtonDeliveryModeTests: XCTestCase {
         XCTAssertTrue(LogiButtonDeliveryPolicy.default.standardButtonUndivertGuardEnabled)
     }
 
-    func testDiagnosisSessionPreferenceFollowsCurrentTransport() {
-        let connectedReceiverRank = LogiSessionManager.diagnosisSessionRankForTests(
-            transport: .receiver,
-            receiverTargetConnected: true
-        )
-        let bleRank = LogiSessionManager.diagnosisSessionRankForTests(
+    func testDiagnosisSessionPreferenceIsFlatForBluetoothOnlyFork() {
+        let rank = LogiSessionManager.diagnosisSessionRankForTests(
             transport: .bleDirect,
             receiverTargetConnected: true
         )
-        let disconnectedReceiverRank = LogiSessionManager.diagnosisSessionRankForTests(
-            transport: .receiver,
-            receiverTargetConnected: false
-        )
-        let unsupportedRank = LogiSessionManager.diagnosisSessionRankForTests(
-            transport: .unsupported,
-            receiverTargetConnected: false
-        )
 
-        XCTAssertLessThan(connectedReceiverRank, bleRank)
-        XCTAssertLessThan(bleRank, disconnectedReceiverRank)
-        XCTAssertLessThan(disconnectedReceiverRank, unsupportedRank)
+        XCTAssertEqual(rank, 0)
     }
 
     func testStandardButtonUndivertPlannerClearsOnlyActiveTemporarilyDivertedTargets() {

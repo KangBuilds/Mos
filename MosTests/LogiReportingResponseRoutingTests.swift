@@ -101,13 +101,6 @@ final class LogiReportingResponseRoutingTests: XCTestCase {
         ))
     }
 
-    func testReceiverControlInfoTimeoutDoesNotRetry() {
-        XCTAssertFalse(LogiDeviceSession.shouldRetryControlInfoTimeoutForTests(
-            connectionMode: .receiver,
-            retryCount: 0
-        ))
-    }
-
     func testIRootPingResponseIsNotADivertedButtonEvent() {
         let pingResponse: [UInt8] = [
             0x11, 0xFF, 0x00, 0x11, 0x07, 0x00, 0x00, 0x00, 0x00

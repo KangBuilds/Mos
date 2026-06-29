@@ -23,23 +23,4 @@ final class LogiControlReportingPacketTests: XCTestCase {
         XCTAssertEqual(params, [0x00, 0x53, 0x02, 0x00, 0x00])
     }
 
-    func testReceiverUsesSameTargetStrategyAsBLE() {
-        let params = LogiDeviceSession.controlReportingParamsForTests(
-            connectionMode: .receiver,
-            cid: 0x0053,
-            divert: true
-        )
-
-        XCTAssertEqual(params, [0x00, 0x53, 0x03, 0x00, 0x00])
-    }
-
-    func testUnsupportedReturnsNoParams() {
-        let params = LogiDeviceSession.controlReportingParamsForTests(
-            connectionMode: .unsupported,
-            cid: 0x0053,
-            divert: true
-        )
-
-        XCTAssertEqual(params, [])
-    }
 }

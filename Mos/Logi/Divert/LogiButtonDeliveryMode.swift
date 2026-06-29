@@ -7,8 +7,6 @@ import Foundation
 
 enum LogiTransportIdentity: Hashable {
     case bleDirect
-    case receiver
-    case unsupported
 }
 
 struct LogiOwnershipKey: Hashable {
@@ -169,13 +167,6 @@ final class LogiButtonDeliveryModeStore {
 
 extension LogiTransportIdentity {
     init(_ mode: LogiDeviceSession.ConnectionMode) {
-        switch mode {
-        case .bleDirect:
-            self = .bleDirect
-        case .receiver:
-            self = .receiver
-        case .unsupported:
-            self = .unsupported
-        }
+        self = .bleDirect
     }
 }

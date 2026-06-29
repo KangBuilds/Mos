@@ -55,40 +55,9 @@ class LogiDeviceSession {
     enum ConnectionMode {
         /// BLE 直连: long report + ID in payload, devIdx=0xFF, divert flags=0x03
         case bleDirect
-        /// USB Receiver (Unifying/Bolt): vendor-specific interface, devIdx=slot(0x01~0x06)
-        /// TODO: 需要实现槽位发现 (HID++ 1.0 枚举配对设备)
-        case receiver
-        /// 未知/不支持
-        case unsupported
     }
 
-    private(set) var connectionMode: ConnectionMode = .unsupported
-
-    enum ReceiverReconnectAction: Equatable {
-        case ignore
-        case refreshReporting
-        case rediscoverFeatures
-    }
-
-    enum ReceiverConnectionNotificationAction: Equatable {
-        case ignore
-        case currentTargetConnected
-        case currentTargetDisconnected
-        case retarget(UInt8)
-
-        var debugLabel: String {
-            switch self {
-            case .ignore:
-                return "ignore"
-            case .currentTargetConnected:
-                return "currentTargetConnected"
-            case .currentTargetDisconnected:
-                return "currentTargetDisconnected"
-            case .retarget(let slot):
-                return "retarget(\(slot))"
-            }
-        }
-    }
+    private(set) var connectionMode: ConnectionMode = .bleDirect
 
     // MARK: - HID++ State
     private var featureIndex: [UInt16: UInt8] = [:]
@@ -97,11 +66,6 @@ class LogiDeviceSession {
     private var deviceIndex: UInt8 = 0x01
     private var isBLE: Bool = false
     private var deviceOpened: Bool = false
-
-    // MARK: - Receiver Enumeration State
-    private(set) var receiverPairedDevices: [ReceiverPairedDevice] = []
-    private var pendingSlotPings: Set<UInt8> = []
-    private var receiverEnumPhase: Int = 0  // 0=idle, 1=pinging, 2=querying info
 
     // MARK: - Report Buffer
     private var reportBufferPtr: UnsafeMutablePointer<UInt8>?
@@ -113,7 +77,7 @@ class LogiDeviceSession {
     private static let discoveryTimeout: TimeInterval = 5.0
     private var pendingCacheValidation: UInt8? = nil  // 等待 ping 响应验证缓存
 
-    // MARK: - Query Timeouts (防止 Bolt receiver 上 HID++ 响应丢包 / 错误导致 query 链路卡死)
+    // MARK: - Query Timeouts
     private var controlInfoQueryTimer: Timer?
     private var reportingQueryTimer: Timer?
     private static let reprogQueryTimeout: TimeInterval = 1.0
@@ -127,12 +91,12 @@ class LogiDeviceSession {
     private var reprogInitComplete: Bool = false  // init 完成后, function 0 = button event 而非 GetControlCount
     private var reportingQueryIndex: Int = 0      // GetControlReporting 逐按键查询进度
 
-    /// 握手终态: receiver 枚举完成 / direct 设备 discovery 走到终点(成功或失败).
+    /// 握手终态: direct 设备 discovery 走到终点(成功或失败).
     /// sidebar 圆点据此判定 Ready vs Initializing; 与 reprogInitComplete 不同 —— 后者不覆盖
     /// "REPROG 不可用"/"GetControlCount=0" 等 discovery 失败分支.
     private var handshakeComplete: Bool = false
 
-    /// 当前是否正在进行 discovery 握手 (setTargetSlot/rediscoverFeatures 触发, 完成/失败后清零).
+    /// 当前是否正在进行 discovery 握手 (rediscoverFeatures 触发, 完成/失败后清零).
     /// UI 据此显示 spinner; 和 handshakeComplete 不同 —— 前者表达"飞行中", 后者表达"终态达成".
     private var discoveryInFlight: Bool = false
 
@@ -159,7 +123,7 @@ class LogiDeviceSession {
         case ignored
     }
 
-    // MARK: - Receiver Paired Device Info
+    // MARK: - Legacy Debug Shape
     struct ReceiverPairedDevice {
         let slot: UInt8              // 1-6
         var isConnected: Bool = false
@@ -223,17 +187,6 @@ class LogiDeviceSession {
     private static let hidppLongReportId: UInt8 = 0x11
     private static let hidppErrorFeatureIdx: UInt8 = 0xFF
 
-    // HID++ 1.0 sub-IDs (receiver register access)
-    private static let hidpp10GetRegister: UInt8 = 0x81
-    private static let hidpp10GetLongRegister: UInt8 = 0x83
-    private static let hidpp10ErrorMsg: UInt8 = 0x8F
-    private static let hidpp10DeviceConnection: UInt8 = 0x41
-
-    // Receiver registers
-    private static let receiverPairingInfo: UInt8 = 0xB5
-    private static let pairingInfoDeviceInfo: UInt8 = 0x20
-    private static let pairingInfoDeviceName: UInt8 = 0x40
-
     private struct ReportingResponse {
         let cid: UInt16
         let reportingFlags: UInt8
@@ -285,11 +238,7 @@ class LogiDeviceSession {
 
     /// 是否为 HID++ 候选接口
     var isHIDPPCandidate: Bool {
-        // USB: 只有 vendor-specific usage page 支持 HID++
-        if !isBLE {
-            return usagePage == 0xFF00 || usagePage == 0xFF43 || usagePage == 0xFFC0
-        }
-        return Self.isBLEHIDPPCandidate(
+        return isBLE && Self.isBLEHIDPPCandidate(
             productId: deviceInfo.productId,
             usagePage: usagePage,
             usage: usage
@@ -297,8 +246,6 @@ class LogiDeviceSession {
     }
 
     private static func isBLEHIDPPCandidate(productId: UInt16, usagePage: Int, usage: Int) -> Bool {
-        // BLE: HID++ usually reuses the standard mouse interface.
-        if usagePage == 0x0001 && usage == 0x0002 { return true }
         // MX Anywhere 2S exposes its BLE HID++ interface as keyboard usage.
         return productId == 0xB01A && usagePage == 0x0001 && usage == 0x0006
     }
@@ -328,7 +275,7 @@ class LogiDeviceSession {
         #if DEBUG
         precondition(Thread.isMainThread, "applyUsage main-thread-only")
         LogiTrace.log(
-            "[Session] applyUsage enter device=\(deviceInfo.name) mode=\(connectionMode) connected=\(currentReceiverTargetIsConnected) reprogInit=\(reprogInitComplete) aggregate=\(LogiTrace.codes(aggregateMosCodes)) lastApplied=\(LogiTrace.cids(lastApplied)) diverted=\(LogiTrace.cids(divertedCIDs))",
+            "[Session] applyUsage enter device=\(deviceInfo.name) mode=\(connectionMode) reprogInit=\(reprogInitComplete) aggregate=\(LogiTrace.codes(aggregateMosCodes)) lastApplied=\(LogiTrace.cids(lastApplied)) diverted=\(LogiTrace.cids(divertedCIDs))",
             device: deviceInfo.name
         )
         #endif
@@ -344,12 +291,6 @@ class LogiDeviceSession {
         guard let reprogIdx = featureIndex[Self.featureReprogV4] else {
             #if DEBUG
             LogiTrace.log("[Session] applyUsage skipped: REPROG feature missing", device: deviceInfo.name)
-            #endif
-            return
-        }
-        guard currentReceiverTargetIsConnected else {
-            #if DEBUG
-            LogiTrace.log("[Session] applyUsage skipped: receiver target disconnected", device: deviceInfo.name)
             #endif
             return
         }
@@ -484,10 +425,9 @@ class LogiDeviceSession {
             cancelBLEStandardUndivertGuard()
             return
         }
-        guard connectionMode == .bleDirect,
-              currentReceiverTargetIsConnected else {
+        guard connectionMode == .bleDirect else {
             #if DEBUG
-            LogiTrace.log("[StandardButtonGuard] skipped mode=\(connectionMode) connected=\(currentReceiverTargetIsConnected)", device: deviceInfo.name)
+            LogiTrace.log("[StandardButtonGuard] skipped mode=\(connectionMode)", device: deviceInfo.name)
             #endif
             cancelBLEStandardUndivertGuard()
             return
@@ -540,11 +480,10 @@ class LogiDeviceSession {
         interval: TimeInterval
     ) {
         guard generation == bleStandardUndivertGuardGeneration,
-              connectionMode == .bleDirect,
-              currentReceiverTargetIsConnected else {
+              connectionMode == .bleDirect else {
             #if DEBUG
             LogiTrace.log(
-                "[StandardButtonGuard] tick skipped generation=\(generation) currentGeneration=\(bleStandardUndivertGuardGeneration) mode=\(connectionMode) connected=\(currentReceiverTargetIsConnected)",
+                "[StandardButtonGuard] tick skipped generation=\(generation) currentGeneration=\(bleStandardUndivertGuardGeneration) mode=\(connectionMode)",
                 device: deviceInfo.name
             )
             #endif
@@ -636,7 +575,7 @@ class LogiDeviceSession {
         return targetCIDsForUsage(
             aggregateMosCodes: aggregateMosCodes,
             divertableCIDs: divertableCIDs,
-            transport: .receiver,
+            transport: .bleDirect,
             phase: .normal,
             policy: LogiButtonDeliveryPolicy(
                 standardMouseButtonsUseNativeEvents: false
@@ -720,136 +659,21 @@ class LogiDeviceSession {
     var debugReprogInitComplete: Bool { reprogInitComplete }
     var debugHandshakeComplete: Bool { handshakeComplete }
     var debugDiscoveryInFlight: Bool { discoveryInFlight }
-    var debugIsReceiver: Bool { connectionMode == .receiver }
-    var debugCurrentReceiverTargetIsConnected: Bool { currentReceiverTargetIsConnected }
+    var debugIsReceiver: Bool { false }
+    var debugCurrentReceiverTargetIsConnected: Bool { true }
     var debugDeviceIndex: UInt8 { deviceIndex }
     var debugIsBLE: Bool { isBLE }
     var debugDeviceOpened: Bool { deviceOpened }
-    var debugReceiverPairedDevices: [ReceiverPairedDevice] { receiverPairedDevices }
+    var debugReceiverPairedDevices: [ReceiverPairedDevice] { [] }
     var debugConnectionMode: String {
-        switch connectionMode {
-        case .bleDirect: return "BLE Direct"
-        case .receiver: return "Receiver (Unifying/Bolt)"
-        case .unsupported: return "Unsupported"
-        }
+        return "BLE Direct"
     }
 
     private var currentReceiverTargetIsConnected: Bool {
-        return Self.receiverTargetIsConnected(
-            connectionMode: connectionMode,
-            deviceIndex: deviceIndex,
-            pairedDevices: receiverPairedDevices
-        )
-    }
-
-    private var currentReceiverTargetConnectionIsKnown: Bool {
-        return Self.receiverTargetConnectionIsKnown(
-            connectionMode: connectionMode,
-            deviceIndex: deviceIndex,
-            pairedDevices: receiverPairedDevices
-        )
-    }
-
-    private static func receiverTargetConnectionIsKnown(
-        connectionMode: ConnectionMode,
-        deviceIndex: UInt8,
-        pairedDevices: [ReceiverPairedDevice]
-    ) -> Bool {
-        guard connectionMode == .receiver else { return true }
-        guard deviceIndex >= 1 && deviceIndex <= 6 else { return false }
-        return pairedDevices.contains(where: { $0.slot == deviceIndex })
-    }
-
-    private static func receiverTargetIsConnected(
-        connectionMode: ConnectionMode,
-        deviceIndex: UInt8,
-        pairedDevices: [ReceiverPairedDevice]
-    ) -> Bool {
-        guard connectionMode == .receiver else { return true }
-        guard deviceIndex >= 1 && deviceIndex <= 6 else { return false }
-        return pairedDevices.first(where: { $0.slot == deviceIndex })?.isConnected ?? true
-    }
-
-    private static func receiverReconnectAction(
-        hasReprogFeature: Bool,
-        discoveredControlCount: Int,
-        reprogControlCount: Int,
-        hasInflightWork: Bool
-    ) -> ReceiverReconnectAction {
-        if hasInflightWork { return .ignore }
-        if hasReprogFeature,
-           discoveredControlCount > 0,
-           discoveredControlCount == reprogControlCount {
-            return .refreshReporting
-        }
-        return .rediscoverFeatures
-    }
-
-    private static func receiverConnectionNotificationAction(
-        currentDeviceIndex: UInt8,
-        incomingDeviceIndex: UInt8,
-        connected: Bool,
-        currentTargetConnectionIsKnown: Bool,
-        currentTargetIsConnected: Bool,
-        reprogInitComplete: Bool,
-        hasInflightWork: Bool
-    ) -> ReceiverConnectionNotificationAction {
-        guard incomingDeviceIndex >= 1 && incomingDeviceIndex <= 6 else { return .ignore }
-        if incomingDeviceIndex == currentDeviceIndex {
-            return connected ? .currentTargetConnected : .currentTargetDisconnected
-        }
-        guard connected else { return .ignore }
-        let currentTargetReady = currentTargetConnectionIsKnown && currentTargetIsConnected && reprogInitComplete
-        guard !currentTargetReady && !hasInflightWork else { return .ignore }
-        return .retarget(incomingDeviceIndex)
+        return true
     }
 
     #if DEBUG
-    internal static func receiverTargetIsConnectedForTests(
-        connectionMode: ConnectionMode,
-        deviceIndex: UInt8,
-        pairedDevices: [ReceiverPairedDevice]
-    ) -> Bool {
-        return receiverTargetIsConnected(
-            connectionMode: connectionMode,
-            deviceIndex: deviceIndex,
-            pairedDevices: pairedDevices
-        )
-    }
-
-    internal static func receiverReconnectActionForTests(
-        hasReprogFeature: Bool,
-        discoveredControlCount: Int,
-        reprogControlCount: Int,
-        hasInflightWork: Bool
-    ) -> ReceiverReconnectAction {
-        return receiverReconnectAction(
-            hasReprogFeature: hasReprogFeature,
-            discoveredControlCount: discoveredControlCount,
-            reprogControlCount: reprogControlCount,
-            hasInflightWork: hasInflightWork
-        )
-    }
-
-    internal static func receiverConnectionNotificationActionForTests(
-        currentDeviceIndex: UInt8,
-        incomingDeviceIndex: UInt8,
-        connected: Bool,
-        currentTargetIsConnected: Bool,
-        reprogInitComplete: Bool,
-        hasInflightWork: Bool
-    ) -> ReceiverConnectionNotificationAction {
-        return receiverConnectionNotificationAction(
-            currentDeviceIndex: currentDeviceIndex,
-            incomingDeviceIndex: incomingDeviceIndex,
-            connected: connected,
-            currentTargetConnectionIsKnown: true,
-            currentTargetIsConnected: currentTargetIsConnected,
-            reprogInitComplete: reprogInitComplete,
-            hasInflightWork: hasInflightWork
-        )
-    }
-
     internal static func isBLEHIDPPCandidateForTests(productId: UInt16, usagePage: Int, usage: Int) -> Bool {
         return isBLEHIDPPCandidate(productId: productId, usagePage: usagePage, usage: usage)
     }
@@ -859,17 +683,8 @@ class LogiDeviceSession {
 
     func setup() {
         isBLE = transport.lowercased().contains("bluetooth")
-
-        // 确定连接模式
-        if isBLE {
-            connectionMode = .bleDirect
-            deviceIndex = 0xFF
-        } else if usagePage == 0xFF00 || usagePage == 0xFF43 || usagePage == 0xFFC0 {
-            connectionMode = .receiver
-            deviceIndex = 0x01  // 临时值, 枚举后会自动更新到实际在线 slot
-        } else {
-            connectionMode = .unsupported
-        }
+        connectionMode = .bleDirect
+        deviceIndex = 0xFF
 
         let tag = "[\(deviceInfo.name):\(String(format: "0x%04X", usagePage))/\(String(format: "0x%04X", usage))]"
         LogiDebugPanel.log("\(tag) Setup: transport=\(transport), mode=\(connectionMode), devIdx=\(String(format: "0x%02X", deviceIndex)), isCandidate=\(isHIDPPCandidate)")
@@ -893,16 +708,9 @@ class LogiDeviceSession {
 
         setupInputReportCallback()
 
-        // 标记初次 discovery 开始 (覆盖 receiver enumeration + BLE direct discovery + 缓存验证),
+        // 标记初次 discovery 开始 (BLE direct discovery + 缓存验证),
         // UI 打开 debug panel 时能看到 Initializing spinner.
         setDiscoveryInFlight(true)
-
-        // Receiver 模式: 先枚举 slot, 找到在线设备后自动 target + feature discovery
-        if connectionMode == .receiver {
-            LogiDebugPanel.log("\(tag) Receiver mode: enumerating paired devices...")
-            enumerateReceiverDevices()
-            return
-        }
 
         // BLE / 直连模式: 直接 Feature Discovery (尝试缓存, 失败则完整 discovery)
         if let cached = Self.loadCachedFeatureIndex(for: deviceInfo.productId),
@@ -968,44 +776,17 @@ class LogiDeviceSession {
 
     /// 发送 HID++ 请求
     /// BLE 直连: long report (20 bytes) + report ID in payload (hidapi 兼容)
-    /// Receiver: TODO - 可能需要不同格式, 待 Bolt/Unifying 测试后实现
     private func sendRequest(featureIndex: UInt8, functionId: UInt8, params: [UInt8] = []) {
-        var report: [UInt8]
-        let result: IOReturn
-
-        switch connectionMode {
-        case .bleDirect:
-            // BLE: long report, hidapi 兼容 (report ID in payload)
-            report = [UInt8](repeating: 0, count: 20)
-            report[0] = Self.hidppLongReportId
-            report[1] = deviceIndex
-            report[2] = featureIndex
-            report[3] = (functionId << 4) | 0x01
-            for (i, p) in params.prefix(16).enumerated() { report[4 + i] = p }
-            result = IOHIDDeviceSetReport(
-                hidDevice, kIOHIDReportTypeOutput,
-                CFIndex(report[0]), report, report.count
-            )
-
-        case .receiver:
-            // TODO: Unifying/Bolt receiver 传输
-            // 可能需要: short report (7 bytes), 不同的 payload 格式
-            // 需要先实现 HID++ 1.0 槽位枚举
-            report = [UInt8](repeating: 0, count: 20)
-            report[0] = Self.hidppLongReportId
-            report[1] = deviceIndex
-            report[2] = featureIndex
-            report[3] = (functionId << 4) | 0x01
-            for (i, p) in params.prefix(16).enumerated() { report[4 + i] = p }
-            result = IOHIDDeviceSetReport(
-                hidDevice, kIOHIDReportTypeOutput,
-                CFIndex(report[0]), report, report.count
-            )
-
-        case .unsupported:
-            LogiDebugPanel.log(device: deviceInfo.name, type: .warning, message: "Cannot send: unsupported connection mode")
-            return
-        }
+        var report = [UInt8](repeating: 0, count: 20)
+        report[0] = Self.hidppLongReportId
+        report[1] = deviceIndex
+        report[2] = featureIndex
+        report[3] = (functionId << 4) | 0x01
+        for (i, p) in params.prefix(16).enumerated() { report[4 + i] = p }
+        let result = IOHIDDeviceSetReport(
+            hidDevice, kIOHIDReportTypeOutput,
+            CFIndex(report[0]), report, report.count
+        )
 
         let hex = report.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
         let resultStr = result == kIOReturnSuccess ? "OK" : String(format: "0x%08x", result)
@@ -1252,13 +1033,8 @@ class LogiDeviceSession {
         // HID++ Xvalid: bit0=divert value, bit1=divert valid.
         let flagsByte: UInt8 = divert ? 0x03 : 0x02
 
-        switch connectionMode {
-        case .bleDirect, .receiver:
-            // targetCID=0x0000: 不改变现有 remap 目标; BLE/Bolt 默认保持同一策略.
-            return [cidH, cidL, flagsByte, 0x00, 0x00]
-        case .unsupported:
-            return []
-        }
+        // targetCID=0x0000: 不改变现有 remap 目标.
+        return [cidH, cidL, flagsByte, 0x00, 0x00]
     }
 
     #if DEBUG
@@ -1341,13 +1117,6 @@ class LogiDeviceSession {
     func undivertAllControls() {
         releaseAllActiveButtonState(reason: "undivert all")
         cancelBLEStandardUndivertGuard()
-        guard currentReceiverTargetIsConnected else {
-            lastApplied.removeAll()
-            divertedCIDs.removeAll()
-            reprogInitComplete = false
-            LogiDebugPanel.log("[\(deviceInfo.name)] Cleared local divert state; receiver target disconnected")
-            return
-        }
         guard let idx = featureIndex[Self.featureReprogV4] else {
             lastApplied.removeAll()
             reprogInitComplete = false
@@ -1364,348 +1133,16 @@ class LogiDeviceSession {
 
     func toggleDivert(cid: UInt16) {
         guard let idx = featureIndex[Self.featureReprogV4] else { return }
-        guard currentReceiverTargetIsConnected else { return }
         let currentlyDiverted = divertedCIDs.contains(cid)
         setControlReporting(featureIndex: idx, cid: cid, divert: !currentlyDiverted)
     }
 
-    // MARK: - Receiver Slot Targeting
-
-    /// 切换目标 slot (debug 面板交互/自动选择)
     func setTargetSlot(slot: UInt8) {
-        guard connectionMode == .receiver, slot >= 1, slot <= 6 else { return }
-        cancelInflightDiscovery()
-        deviceIndex = slot
-        // 重置 feature 状态, 等待新一轮 discovery
-        featureIndex.removeAll()
-        discoveredControls.removeAll()
-        reprogInitComplete = false
-        handshakeComplete = false  // 允许 markHandshakeComplete 再次 post, 使 sidebar/panels 刷新回 loading/ready 切换
-        reprogControlCount = 0
-        reprogQueryIndex = 0
-        reportingQueryIndex = 0
-        releaseAllActiveButtonState(reason: "target slot changed")
-        lastApplied.removeAll()
-        divertedCIDs.removeAll()
-        setDiscoveryInFlight(true)
-        LogiDebugPanel.log("[\(deviceInfo.name)] Target slot changed to \(slot)")
+        LogiDebugPanel.log("[\(deviceInfo.name)] Ignoring receiver slot \(slot); this fork is Bluetooth-only")
     }
 
-    // MARK: - Receiver Device Enumeration
-
-    /// 枚举 receiver 上的配对设备 (ping 所有 slot + 查询设备信息)
     func enumerateReceiverDevices() {
-        guard connectionMode == .receiver else { return }
-        receiverPairedDevices = (1...6).map { ReceiverPairedDevice(slot: UInt8($0)) }
-        pendingSlotPings = Set((1 as UInt8)...(6 as UInt8))
-        receiverEnumPhase = 1
-        LogiDebugPanel.log("[\(deviceInfo.name)] Enumerating receiver slots 1-6...")
-
-        for slot: UInt8 in 1...6 {
-            pingReceiverSlot(slot)
-        }
-
-        // 超时: 5秒后自动完成 ping 阶段
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-            guard let self = self, self.receiverEnumPhase == 1 else { return }
-            // 未响应的 slot 标记为未连接
-            for slot in self.pendingSlotPings {
-                if let idx = self.receiverPairedDevices.firstIndex(where: { $0.slot == slot }) {
-                    self.receiverPairedDevices[idx].lastError = "Timeout"
-                }
-            }
-            self.pendingSlotPings.removeAll()
-            self.finishPingPhase()
-        }
-    }
-
-    /// Ping 特定 receiver slot (发送 IRoot.Ping)
-    func pingReceiverSlot(_ slot: UInt8) {
-        guard connectionMode == .receiver else { return }
-
-        // HID++ 2.0 IRoot.Ping via short report
-        // [0x10, devIdx, 0x00(IRoot), 0x1A(func=1,swId=0x0A), 0x00, 0x00, slot(pingData)]
-        var report = [UInt8](repeating: 0, count: 7)
-        report[0] = Self.hidppShortReportId
-        report[1] = slot
-        report[2] = 0x00  // IRoot feature index
-        report[3] = 0x1A  // function=1(ping), swId=0x0A
-        report[4] = 0x00
-        report[5] = 0x00
-        report[6] = slot  // ping data for matching
-
-        pendingSlotPings.insert(slot)
-
-        let result = IOHIDDeviceSetReport(
-            hidDevice, kIOHIDReportTypeOutput,
-            CFIndex(report[0]), report, report.count
-        )
-
-        let hex = report.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let resultStr = result == kIOReturnSuccess ? "OK" : String(format: "0x%08x", result)
-        LogiDebugPanel.log(device: deviceInfo.name, type: .tx, message: "TX: \(hex) -> \(resultStr)",
-                                  decoded: "IRoot.Ping(slot=\(slot))")
-    }
-
-    /// 查询 receiver slot 的设备信息 (register 0xB5)
-    func queryReceiverDeviceInfo(slot: UInt8) {
-        guard connectionMode == .receiver else { return }
-        let entityIdx = slot - 1  // register 0xB5 使用 0-based index
-
-        // 查询设备类型和 wireless PID
-        sendReceiverRegisterGet(register: Self.receiverPairingInfo, isLong: true,
-                                params: [entityIdx, Self.pairingInfoDeviceInfo])
-
-        // 延迟 100ms 查询设备名称 (避免请求堆积)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.sendReceiverRegisterGet(register: Self.receiverPairingInfo, isLong: true,
-                                          params: [entityIdx, Self.pairingInfoDeviceName])
-        }
-    }
-
-    /// 发送 HID++ 1.0 register GET 请求 (target: receiver 0xFF)
-    private func sendReceiverRegisterGet(register: UInt8, isLong: Bool, params: [UInt8] = []) {
-        var report: [UInt8]
-        let subId: UInt8
-
-        if isLong {
-            report = [UInt8](repeating: 0, count: 20)
-            report[0] = Self.hidppLongReportId
-            subId = Self.hidpp10GetLongRegister
-        } else {
-            report = [UInt8](repeating: 0, count: 7)
-            report[0] = Self.hidppShortReportId
-            subId = Self.hidpp10GetRegister
-        }
-
-        report[1] = 0xFF  // receiver device index
-        report[2] = subId
-        report[3] = register
-        for (i, p) in params.enumerated() {
-            if 4 + i < report.count { report[4 + i] = p }
-        }
-
-        let result = IOHIDDeviceSetReport(
-            hidDevice, kIOHIDReportTypeOutput,
-            CFIndex(report[0]), report, report.count
-        )
-
-        let hex = report.prefix(min(report.count, 20)).map { String(format: "%02X", $0) }.joined(separator: " ")
-        let resultStr = result == kIOReturnSuccess ? "OK" : String(format: "0x%08x", result)
-        let regName = register == Self.receiverPairingInfo ? "PairingInfo" : "0x\(String(format: "%02X", register))"
-        let paramsHex = params.map { String(format: "%02X", $0) }.joined(separator: " ")
-        LogiDebugPanel.log(device: deviceInfo.name, type: .tx, message: "TX: \(hex) -> \(resultStr)",
-                                  decoded: "\(isLong ? "GET_LONG" : "GET")_REGISTER(\(regName), [\(paramsHex)])")
-    }
-
-    // MARK: - Receiver Response Handlers
-
-    /// 处理 HID++ 1.0 错误响应 (sub-ID 0x8F)
-    private func handleHIDPP10Error(_ report: UnsafeBufferPointer<UInt8>) {
-        let devIdx = report[1]
-        let errorCode = report.count > 5 ? report[5] : 0
-
-        let hidpp10ErrorNames: [UInt8: String] = [
-            0x00: "Success", 0x01: "InvalidSubID", 0x02: "InvalidAddress",
-            0x03: "InvalidValue", 0x04: "ConnectFailed", 0x05: "TooManyDevices",
-            0x06: "AlreadyExists", 0x07: "Busy", 0x08: "UnknownDevice",
-            0x09: "ResourceError", 0x0A: "RequestUnavailable", 0x0B: "InvalidParamValue",
-        ]
-        let errorName = hidpp10ErrorNames[errorCode] ?? "0x\(String(format: "%02X", errorCode))"
-
-        // 更新 receiver slot 状态 (如果是 ping 错误)
-        if devIdx >= 1 && devIdx <= 6 && pendingSlotPings.contains(devIdx) {
-            pendingSlotPings.remove(devIdx)
-            if let idx = receiverPairedDevices.firstIndex(where: { $0.slot == devIdx }) {
-                receiverPairedDevices[idx].isConnected = false
-                receiverPairedDevices[idx].lastError = errorName
-            }
-            checkPingPhaseComplete()
-        }
-
-        // 只处理来自当前目标设备的 feature discovery 错误
-        // (receiver 自身的 register 错误 devIdx=0xFF 不应影响设备的 feature discovery)
-        if devIdx == deviceIndex {
-            for (featureId, callback) in pendingDiscovery {
-                callback(nil)
-                pendingDiscovery.removeValue(forKey: featureId)
-            }
-        }
-    }
-
-    /// 处理 ping 响应 (device slot 回复 IRoot.Ping)
-    private func handleSlotPingResponse(devIdx: UInt8, report: UnsafeBufferPointer<UInt8>) {
-        pendingSlotPings.remove(devIdx)
-        let protMajor = report[4]
-        let protMinor = report[5]
-
-        if let idx = receiverPairedDevices.firstIndex(where: { $0.slot == devIdx }) {
-            receiverPairedDevices[idx].isConnected = true
-            receiverPairedDevices[idx].protocolMajor = protMajor
-            receiverPairedDevices[idx].protocolMinor = protMinor
-            receiverPairedDevices[idx].lastError = nil
-        }
-
-        LogiDebugPanel.log(device: deviceInfo.name, type: .info,
-            message: "Slot \(devIdx): device connected (HID++ \(protMajor).\(protMinor))")
-        checkPingPhaseComplete()
-    }
-
-    /// 检查 ping 阶段是否完成
-    private func checkPingPhaseComplete() {
-        guard pendingSlotPings.isEmpty && receiverEnumPhase == 1 else { return }
-        finishPingPhase()
-    }
-
-    /// 完成 ping 阶段, 进入 info 查询阶段
-    private func finishPingPhase() {
-        receiverEnumPhase = 2
-        let connectedSlots = receiverPairedDevices.filter { $0.isConnected }
-        LogiDebugPanel.log("[\(deviceInfo.name)] Ping complete: \(connectedSlots.count)/6 slots connected")
-
-        // 查询已连接设备的详细信息 (register 0xB5, 可能在 Bolt receiver 上失败)
-        for dev in connectedSlots {
-            queryReceiverDeviceInfo(slot: dev.slot)
-        }
-
-        // 自动 target 第一个在线设备并启动 feature discovery
-        if let firstConnected = connectedSlots.first {
-            deviceIndex = firstConnected.slot
-            featureIndex.removeAll()
-            discoveredControls.removeAll()
-            reprogInitComplete = false
-            LogiDebugPanel.log("[\(deviceInfo.name)] Auto-targeted slot \(firstConnected.slot)")
-
-            let tag = "[\(deviceInfo.name):slot\(firstConnected.slot)]"
-            LogiDebugPanel.log("\(tag) Starting feature discovery for REPROG_CONTROLS_V4 (0x1B04)")
-            startFreshDiscovery(tag: tag)
-        } else {
-            receiverEnumPhase = 0
-            LogiDebugPanel.log("[\(deviceInfo.name)] No devices found on receiver")
-            // 无设备 -> 不会进 peripheral discovery, 此处必须清 inflight 防止 spinner 一直转.
-            setDiscoveryInFlight(false)
-        }
-
-        // Receiver dongle 本身的握手 = slot ping 完成. 后续 peripheral discovery 状态与此独立.
-        handshakeComplete = true
-        NotificationCenter.default.post(name: LogiSessionManager.sessionChangedNotification, object: nil)
-    }
-
-    /// 处理 receiver register 响应
-    private func handleReceiverRegisterResponse(_ report: UnsafeBufferPointer<UInt8>) {
-        let register = report[3]
-
-        if register == Self.receiverPairingInfo {
-            let entityIdx = report[4]  // 0-based
-            let infoType = report[5]
-            let slot = entityIdx + 1
-
-            guard let idx = receiverPairedDevices.firstIndex(where: { $0.slot == slot }) else { return }
-
-            if infoType == Self.pairingInfoDeviceInfo && report.count > 10 {
-                // [entityIdx, 0x20, destId, reportInterval, wirelessPID_hi, wirelessPID_lo, deviceType, ...]
-                receiverPairedDevices[idx].wirelessPID = (UInt16(report[8]) << 8) | UInt16(report[9])
-                receiverPairedDevices[idx].deviceType = report[10]
-                LogiDebugPanel.log(device: deviceInfo.name, type: .info,
-                    message: "Slot \(slot) info: type=\(receiverPairedDevices[idx].deviceTypeName) wirelessPID=\(String(format: "0x%04X", receiverPairedDevices[idx].wirelessPID))")
-            } else if infoType == Self.pairingInfoDeviceName && report.count > 7 {
-                // [entityIdx, 0x40, nameLen, char0, char1, ...]
-                let nameLen = min(Int(report[6]), report.count - 7)
-                if nameLen > 0 {
-                    let nameBytes = Array(report[7..<(7 + nameLen)])
-                    receiverPairedDevices[idx].name = String(bytes: nameBytes, encoding: .utf8) ?? ""
-                    LogiDebugPanel.log(device: deviceInfo.name, type: .info,
-                        message: "Slot \(slot) name: \"\(receiverPairedDevices[idx].name)\"")
-                }
-            }
-
-            NotificationCenter.default.post(name: LogiSessionManager.sessionChangedNotification, object: nil)
-        }
-    }
-
-    /// 处理设备连接/断开通知 (sub-ID 0x41)
-    private func handleDeviceConnectionNotification(_ report: UnsafeBufferPointer<UInt8>) {
-        let devIdx = report[1]
-        let protocolType = report.count > 3 ? report[3] : 0
-        let devInfo = report.count > 4 ? report[4] : 0
-        let connected = (devInfo & 0x40) == 0  // bit 6 = 0: link established
-
-        LogiDebugPanel.log(device: deviceInfo.name, type: .info,
-            message: "Device \(connected ? "connected" : "disconnected") on slot \(devIdx) (protocol=\(String(format: "0x%02X", protocolType)))")
-
-        if devIdx >= 1 && devIdx <= 6 {
-            if let idx = receiverPairedDevices.firstIndex(where: { $0.slot == devIdx }) {
-                receiverPairedDevices[idx].isConnected = connected
-            } else {
-                // 自动追加 (如果枚举尚未运行)
-                var dev = ReceiverPairedDevice(slot: devIdx)
-                dev.isConnected = connected
-                receiverPairedDevices.append(dev)
-                receiverPairedDevices.sort { $0.slot < $1.slot }
-            }
-
-            let hasInflightWork = discoveryTimer != nil || controlInfoQueryTimer != nil || reportingQueryTimer != nil
-            let action = Self.receiverConnectionNotificationAction(
-                currentDeviceIndex: deviceIndex,
-                incomingDeviceIndex: devIdx,
-                connected: connected,
-                currentTargetConnectionIsKnown: currentReceiverTargetConnectionIsKnown,
-                currentTargetIsConnected: currentReceiverTargetIsConnected,
-                reprogInitComplete: reprogInitComplete,
-                hasInflightWork: hasInflightWork
-            )
-            LogiDebugPanel.log(
-                "[\(deviceInfo.name)] DeviceConnection action=\(action.debugLabel) current=\(deviceIndex) incoming=\(devIdx) currentKnown=\(currentReceiverTargetConnectionIsKnown) currentConnected=\(currentReceiverTargetIsConnected) reprogInit=\(reprogInitComplete) inflight=\(hasInflightWork)"
-            )
-
-            switch action {
-            case .ignore:
-                break
-            case .currentTargetConnected:
-                handleCurrentReceiverTargetReconnected()
-            case .currentTargetDisconnected:
-                handleCurrentReceiverTargetDisconnected()
-            case .retarget(let slot):
-                setTargetSlot(slot: slot)
-                rediscoverFeatures()
-            }
-            NotificationCenter.default.post(name: LogiSessionManager.sessionChangedNotification, object: nil)
-        }
-    }
-
-    private func handleCurrentReceiverTargetDisconnected() {
-        cancelInflightDiscovery()
-        releaseAllActiveButtonState(reason: "receiver target disconnected")
-        lastApplied.removeAll()
-        divertedCIDs.removeAll()
-        reprogInitComplete = false
-        handshakeComplete = false
-        reportingQueryIndex = 0
-        setDiscoveryInFlight(false)
-        LogiDebugPanel.log("[\(deviceInfo.name)] Current receiver target disconnected; local divert state cleared")
-    }
-
-    private func handleCurrentReceiverTargetReconnected() {
-        guard connectionMode == .receiver else { return }
-        let hasInflightWork = discoveryTimer != nil || controlInfoQueryTimer != nil || reportingQueryTimer != nil
-        let action = Self.receiverReconnectAction(
-            hasReprogFeature: featureIndex[Self.featureReprogV4] != nil,
-            discoveredControlCount: discoveredControls.count,
-            reprogControlCount: reprogControlCount,
-            hasInflightWork: hasInflightWork
-        )
-
-        switch action {
-        case .ignore:
-            return
-        case .refreshReporting:
-            LogiDebugPanel.log("[\(deviceInfo.name)] Current receiver target reconnected; refreshing reporting state")
-            setDiscoveryInFlight(true)
-            startReportingQuery()
-        case .rediscoverFeatures:
-            LogiDebugPanel.log("[\(deviceInfo.name)] Current receiver target reconnected; rediscovering features")
-            rediscoverFeatures()
-        }
+        LogiDebugPanel.log("[\(deviceInfo.name)] Ignoring receiver enumeration; this fork is Bluetooth-only")
     }
 
     // MARK: - Report Decoding (for debug panel)
@@ -1751,40 +1188,6 @@ class LogiDeviceSession {
         let featIdx = report[2]
         let funcId = report[3] >> 4
         let softwareId = report[3] & 0x0F
-
-        // HID++ 1.0 error (sub-ID 0x8F)
-        if connectionMode == .receiver && featIdx == Self.hidpp10ErrorMsg {
-            let errorSubId = report[3]
-            let errorCode = report.count > 5 ? report[5] : 0
-            let hidpp10ErrNames: [UInt8: String] = [
-                0x01: "InvalidSubID", 0x02: "InvalidAddress", 0x03: "InvalidValue",
-                0x04: "ConnectFailed", 0x05: "TooManyDevices", 0x06: "AlreadyExists",
-                0x07: "Busy", 0x08: "UnknownDevice", 0x09: "ResourceError",
-            ]
-            let errName = hidpp10ErrNames[errorCode] ?? "0x\(String(format: "%02X", errorCode))"
-            return "HID++ 1.0 ERROR: dev=\(String(format: "0x%02X", devIdx)) subId=\(String(format: "0x%02X", errorSubId)) err=\(errName)"
-        }
-
-        // HID++ 1.0 register response from receiver
-        if connectionMode == .receiver && devIdx == 0xFF &&
-           (featIdx == Self.hidpp10GetRegister || featIdx == Self.hidpp10GetLongRegister) {
-            let regAddr = report[3]
-            let regName: String
-            switch regAddr {
-            case Self.receiverPairingInfo: regName = "PairingInfo"
-            case 0x00: regName = "Notifications"
-            case 0x02: regName = "ConnectionState"
-            default: regName = "0x\(String(format: "%02X", regAddr))"
-            }
-            return "Register \(featIdx == Self.hidpp10GetLongRegister ? "GET_LONG" : "GET"): \(regName)"
-        }
-
-        // Device connection notification (sub-ID 0x41)
-        if connectionMode == .receiver && featIdx == Self.hidpp10DeviceConnection {
-            let devInfo = report.count > 4 ? report[4] : 0
-            let connected = (devInfo & 0x40) == 0
-            return "DeviceConnection: slot=\(devIdx) \(connected ? "CONNECTED" : "DISCONNECTED")"
-        }
 
         if featIdx == Self.hidppErrorFeatureIdx {
             let errCode = report.count > 6 ? report[6] : 0
@@ -2312,7 +1715,6 @@ class LogiDeviceSession {
 
     private func enforceStandardButtonGuard(cid: UInt16, reason: String) {
         guard connectionMode == .bleDirect,
-              currentReceiverTargetIsConnected,
               bleStandardUndivertGuardTargets.contains(cid),
               let reprogIdx = featureIndex[Self.featureReprogV4] else {
             return
@@ -2347,48 +1749,9 @@ class LogiDeviceSession {
         let featureIdx = report[2]
         let functionId = report[3] >> 4
         let rxDecoded = decodeReport(report)
-        let isError = featureIdx == Self.hidppErrorFeatureIdx ||
-            (connectionMode == .receiver && featureIdx == Self.hidpp10ErrorMsg)
+        let isError = featureIdx == Self.hidppErrorFeatureIdx
         let rxType: LogEntryType = isError ? .error : .rx
         LogiDebugPanel.log(device: deviceInfo.name, type: rxType, message: "RX: \(hex)", decoded: rxDecoded)
-
-        // Receiver mode: route HID++ 1.0 responses first
-        if connectionMode == .receiver {
-            let devIdx = report[1]
-
-            // HID++ 1.0 error (sub-ID 0x8F)
-            if featureIdx == Self.hidpp10ErrorMsg {
-                handleHIDPP10Error(report)
-                return
-            }
-
-            // HID++ 1.0 register response from receiver (device index 0xFF)
-            if devIdx == 0xFF && (featureIdx == Self.hidpp10GetRegister || featureIdx == Self.hidpp10GetLongRegister) {
-                handleReceiverRegisterResponse(report)
-                return
-            }
-
-            // Device connection notification (sub-ID 0x41)
-            if featureIdx == Self.hidpp10DeviceConnection {
-                handleDeviceConnectionNotification(report)
-                return
-            }
-
-            // Ping response from device behind receiver (IRoot function 1)
-            if devIdx >= 1 && devIdx <= 6 && featureIdx == 0x00 && functionId == 1 && pendingSlotPings.contains(devIdx) {
-                handleSlotPingResponse(devIdx: devIdx, report: report)
-                return
-            }
-
-            // Stale-peripheral filter: 用户 retarget 后, 旧 slot 仍可能有 in-flight 响应抵达.
-            // 按 deviceIndex 过滤掉"非当前 target"的 peripheral 响应, 防止污染新一轮
-            // REPROG discovery state (append 错误 control / advance 错误 index).
-            // 0xFF (receiver register) 和 pending ping 已在上面各自处理, 不会进入这里.
-            if devIdx >= 1 && devIdx <= 6 && devIdx != deviceIndex {
-                LogiDebugPanel.log("[\(deviceInfo.name)] Stale report from slot \(devIdx) (current target=\(deviceIndex)) dropped")
-                return
-            }
-        }
 
         // HID++ 2.0 Error report
         if featureIdx == Self.hidppErrorFeatureIdx {
@@ -2696,9 +2059,7 @@ class LogiDeviceSession {
     /// 前提:初始 discovery 必须已完成;否则无 featureIndex / discoveredControls,直接跳过.
     /// 进行中(timer 未 nil)也跳过,避免 reportingQueryIndex 被重置导致错位.
     func refreshReportingState() {
-        guard connectionMode != .unsupported,
-              currentReceiverTargetIsConnected,
-              !discoveredControls.isEmpty,
+        guard !discoveredControls.isEmpty,
               featureIndex[Self.featureReprogV4] != nil else { return }
         if reportingQueryTimer != nil { return }
         LogiDebugPanel.log("[\(deviceInfo.name)] Refreshing reporting state (throttled)")
@@ -2886,11 +2247,10 @@ class LogiDeviceSession {
 
     private func reassertDesiredDiverts() {
         guard reprogInitComplete,
-              currentReceiverTargetIsConnected,
               featureIndex[Self.featureReprogV4] != nil else {
             #if DEBUG
             LogiTrace.log(
-                "[Session] reassertDesiredDiverts skipped reprogInit=\(reprogInitComplete) connected=\(currentReceiverTargetIsConnected) hasReprog=\(featureIndex[Self.featureReprogV4] != nil)",
+                "[Session] reassertDesiredDiverts skipped reprogInit=\(reprogInitComplete) hasReprog=\(featureIndex[Self.featureReprogV4] != nil)",
                 device: deviceInfo.name
             )
             #endif
@@ -2990,7 +2350,6 @@ class LogiDeviceSession {
     /// 录制模式: 临时 divert 所有 divertable 按键
     func temporarilyDivertAll() {
         guard let idx = featureIndex[Self.featureReprogV4] else { return }
-        guard currentReceiverTargetIsConnected else { return }
         let divertable = Set(discoveredControls.filter { $0.isDivertable }.map { $0.cid })
         let plan = Self.recordingDivertPlan(
             divertableCIDs: divertable,
