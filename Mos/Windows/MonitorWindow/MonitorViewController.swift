@@ -7,20 +7,127 @@
 //
 
 import Cocoa
-import DGCharts
 
 let scrollEventName = NSNotification.Name(rawValue: "ScrollEvent")
 let buttonEventName = NSNotification.Name(rawValue: "ButtonEvent")
 
-class MonitorViewController: NSViewController, ChartViewDelegate {
+final class MonitorLineChartView: NSView {
+    private struct Series {
+        let title: String
+        let color: NSColor
+        var values: [Double] = []
+    }
+
+    private let maxSamples = 100
+    private var series: [Series] = [
+        Series(title: "Vertical", color: NSColor(calibratedRed: 96.0/255.0, green: 198.0/255.0, blue: 85.0/255.0, alpha: 1.0)),
+        Series(title: "Horizontal", color: NSColor(calibratedRed: 246.0/255.0, green: 191.0/255.0, blue: 79.0/255.0, alpha: 1.0)),
+        Series(title: "IsContinuous", color: NSColor(calibratedRed: 52.0/255.0, green: 152.0/255.0, blue: 219.0/255.0, alpha: 1.0)),
+        Series(title: "ScrollCount", color: NSColor(calibratedRed: 155.0/255.0, green: 89.0/255.0, blue: 182.0/255.0, alpha: 1.0)),
+        Series(title: "ScrollPhase", color: NSColor(calibratedRed: 230.0/255.0, green: 126.0/255.0, blue: 34.0/255.0, alpha: 1.0)),
+        Series(title: "MomentumPhase", color: NSColor(calibratedRed: 231.0/255.0, green: 76.0/255.0, blue: 60.0/255.0, alpha: 1.0)),
+    ]
+
+    override var isFlipped: Bool { true }
+
+    func reset() {
+        for index in series.indices {
+            series[index].values.removeAll()
+        }
+        needsDisplay = true
+    }
+
+    func append(_ values: [Double]) {
+        for (index, value) in values.enumerated() where index < series.count {
+            series[index].values.append(value)
+            if series[index].values.count > maxSamples {
+                series[index].values.removeFirst(series[index].values.count - maxSamples)
+            }
+        }
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let plotRect = bounds.insetBy(dx: 8, dy: 22)
+        NSColor.secondaryLabelColor.setStroke()
+        NSBezierPath(rect: plotRect).stroke()
+
+        let visibleValues = series.flatMap { $0.values }
+        guard !visibleValues.isEmpty else {
+            drawLegend()
+            return
+        }
+
+        let minValue = min(visibleValues.min() ?? 0, 0)
+        let maxValue = max(visibleValues.max() ?? 0, 0)
+        let span = max(maxValue - minValue, 1)
+        let maxCount = max(series.map { $0.values.count }.max() ?? 1, 1)
+
+        drawZeroLine(in: plotRect, minValue: minValue, span: span)
+        for item in series {
+            draw(values: item.values, color: item.color, in: plotRect, minValue: minValue, span: span, maxCount: maxCount)
+        }
+        drawLegend()
+    }
+
+    private func draw(values: [Double], color: NSColor, in rect: NSRect, minValue: Double, span: Double, maxCount: Int) {
+        guard values.count > 1 else { return }
+        let path = NSBezierPath()
+        for (index, value) in values.enumerated() {
+            let xRatio = CGFloat(index) / CGFloat(max(maxCount - 1, 1))
+            let yRatio = CGFloat((value - minValue) / span)
+            let point = NSPoint(x: rect.minX + xRatio * rect.width, y: rect.maxY - yRatio * rect.height)
+            if index == 0 {
+                path.move(to: point)
+            } else {
+                path.line(to: point)
+            }
+        }
+        color.setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+    }
+
+    private func drawZeroLine(in rect: NSRect, minValue: Double, span: Double) {
+        let yRatio = CGFloat((0 - minValue) / span)
+        let y = rect.maxY - yRatio * rect.height
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: rect.minX, y: y))
+        path.line(to: NSPoint(x: rect.maxX, y: y))
+        NSColor.tertiaryLabelColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    private func drawLegend() {
+        var x: CGFloat = 8
+        let y: CGFloat = 4
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10),
+            .foregroundColor: NSColor.labelColor,
+        ]
+
+        for item in series {
+            item.color.setFill()
+            NSBezierPath(rect: NSRect(x: x, y: y + 4, width: 10, height: 2)).fill()
+            x += 14
+            let size = (item.title as NSString).size(withAttributes: attrs)
+            (item.title as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+            x += size.width + 10
+        }
+    }
+}
+
+class MonitorViewController: NSViewController {
 
     private enum PreviewRefresh {
         static let buttonLogInterval: TimeInterval = 0.1
     }
     
     // MARK: - UI: 图表
-    var lineChartCount = 0.0
-    @IBOutlet weak var lineChart: LineChartView!
+    @IBOutlet weak var lineChart: MonitorLineChartView!
     
     // MARK: - UI: Log 文本
     @IBOutlet var parsedLogTextField: NSTextView!
@@ -62,41 +169,27 @@ class MonitorViewController: NSViewController, ChartViewDelegate {
     @objc private func updateScrollEventData(notification: NSNotification) {
         let event = notification.object as! CGEvent
         // 更新图表
-        if let data = lineChart.data {
-            // scrollWheelEventPointDelta
-            data.appendEntry(ChartDataEntry(x: lineChartCount, y: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)), toDataSet: 0)
-            data.appendEntry(ChartDataEntry(x: lineChartCount, y: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)), toDataSet: 1)
+        let isContinuous = Double(event.getIntegerValueField(.scrollWheelEventIsContinuous))
+        let scrollPhase = Double(event.getIntegerValueField(.scrollWheelEventScrollPhase))
+        let momentumPhase = Double(event.getIntegerValueField(.scrollWheelEventMomentumPhase))
+        lineChart.append([
+            event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1),
+            event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2),
+            isContinuous,
+            Double(event.getIntegerValueField(.scrollWheelEventScrollCount)),
+            scrollPhase,
+            momentumPhase,
+        ])
 
-            // scrollWheelEventIsContinuous
-            let isContinuous = Double(event.getIntegerValueField(.scrollWheelEventIsContinuous))
-            data.appendEntry(ChartDataEntry(x: lineChartCount, y: isContinuous), toDataSet: 2)
-            
-            // scrollWheelEventScrollCount
-            data.appendEntry(ChartDataEntry(x: lineChartCount, y: Double(event.getIntegerValueField(.scrollWheelEventScrollCount))), toDataSet: 3)
-            
-            // scrollWheelEventScrollPhase
-            let scrollPhase = Double(event.getIntegerValueField(.scrollWheelEventScrollPhase))
-            data.appendEntry(ChartDataEntry(x: lineChartCount, y: scrollPhase), toDataSet: 4)
-
-            // scrollWheelEventMomentumPhase
-            let momentumPhase = Double(event.getIntegerValueField(.scrollWheelEventMomentumPhase))
-            data.appendEntry(ChartDataEntry(x: lineChartCount, y: momentumPhase), toDataSet: 5)
-
-            // Logs
-            if prevScrollWheelEventScrollPhase != scrollPhase || prevScrollWheelEventMomentumPhase != momentumPhase {
-                if prevScrollWheelEventScrollPhase != scrollPhase {
-                    prevScrollWheelEventScrollPhase = scrollPhase
-                }
-                if prevScrollWheelEventMomentumPhase != momentumPhase {
-                    prevScrollWheelEventMomentumPhase = momentumPhase
-                }
-                NSLog("Phase updated -> prevScrollWheelEventScrollPhase: \(scrollPhase), prevScrollWheelEventMomentumPhase: \(momentumPhase)")
+        // Logs
+        if prevScrollWheelEventScrollPhase != scrollPhase || prevScrollWheelEventMomentumPhase != momentumPhase {
+            if prevScrollWheelEventScrollPhase != scrollPhase {
+                prevScrollWheelEventScrollPhase = scrollPhase
             }
-
-            lineChart.setVisibleXRange(minXRange: 1.0, maxXRange: 100.0)
-            lineChart.moveViewToX(lineChartCount)
-            lineChart.notifyDataSetChanged()
-            lineChartCount += 1.0
+            if prevScrollWheelEventMomentumPhase != momentumPhase {
+                prevScrollWheelEventMomentumPhase = momentumPhase
+            }
+            NSLog("Phase updated -> prevScrollWheelEventScrollPhase: \(scrollPhase), prevScrollWheelEventMomentumPhase: \(momentumPhase)")
         }
         // 更新 Log
         parsedLogTextField.string = Logger.getParsedLog(form: event)
@@ -277,67 +370,7 @@ class MonitorViewController: NSViewController, ChartViewDelegate {
     // MARK: - 图表管理
     // 初始化
     func initCharts() {
-        // 定义颜色
-        let green = NSUIColor(red: 96.0/255.0, green: 198.0/255.0, blue: 85.0/255.0, alpha: 1.0)
-        let yellow = NSUIColor(red: 246.0/255.0, green: 191.0/255.0, blue: 79.0/255.0, alpha: 1.0)
-        let blue = NSUIColor(red: 52.0/255.0, green: 152.0/255.0, blue: 219.0/255.0, alpha: 1.0)
-        let purple = NSUIColor(red: 155.0/255.0, green: 89.0/255.0, blue: 182.0/255.0, alpha: 1.0)
-        let orange = NSUIColor(red: 230.0/255.0, green: 126.0/255.0, blue: 34.0/255.0, alpha: 1.0)
-        let red = NSUIColor(red: 231.0/255.0, green: 76.0/255.0, blue: 60.0/255.0, alpha: 1.0)
-        
-        // 设置代理
-        lineChart.delegate = self
-        // 初始化图表数据
-        lineChartCount = 0.0
-        
-        // 设置数据集
-        let verticalData = LineChartDataSet(entries: [ChartDataEntry(x: 0.0, y: 0.0)], label: "Vertical")
-        verticalData.valueTextColor = NSColor.labelColor
-        verticalData.colors = [green]
-        verticalData.circleRadius = 1.5
-        verticalData.circleColors = [green]
-        
-        let horizontalData = LineChartDataSet(entries: [ChartDataEntry(x: 0.0, y: 0.0)], label: "Horizontal")
-        horizontalData.valueTextColor = NSColor.labelColor
-        horizontalData.colors = [yellow]
-        horizontalData.circleRadius = 1.5
-        horizontalData.circleColors = [yellow]
-        
-        let isContinuousData = LineChartDataSet(entries: [ChartDataEntry(x: 0.0, y: 0.0)], label: "IsContinuous")
-        isContinuousData.valueTextColor = NSColor.labelColor
-        isContinuousData.colors = [blue]
-        isContinuousData.circleRadius = 1.5
-        isContinuousData.circleColors = [blue]
-        
-        let scrollCountData = LineChartDataSet(entries: [ChartDataEntry(x: 0.0, y: 0.0)], label: "ScrollCount")
-        scrollCountData.valueTextColor = NSColor.labelColor
-        scrollCountData.colors = [purple]
-        scrollCountData.circleRadius = 1.5
-        scrollCountData.circleColors = [purple]
-        
-        let scrollPhaseData = LineChartDataSet(entries: [ChartDataEntry(x: 0.0, y: 0.0)], label: "ScrollPhase")
-        scrollPhaseData.valueTextColor = NSColor.labelColor
-        scrollPhaseData.colors = [orange]
-        scrollPhaseData.circleRadius = 1.5
-        scrollPhaseData.circleColors = [orange]
-        
-        let momentumPhaseData = LineChartDataSet(entries: [ChartDataEntry(x: 0.0, y: 0.0)], label: "MomentumPhase")
-        momentumPhaseData.valueTextColor = NSColor.labelColor
-        momentumPhaseData.colors = [red]
-        momentumPhaseData.circleRadius = 1.5
-        momentumPhaseData.circleColors = [red]
-        
-        lineChart.data = LineChartData(dataSets: [verticalData, horizontalData, isContinuousData, scrollCountData, scrollPhaseData, momentumPhaseData])
-        
-        // 设置图表样式
-        lineChart.noDataTextColor = NSColor.labelColor
-        lineChart.chartDescription.text = ""
-        lineChart.legend.textColor = NSColor.labelColor
-        lineChart.xAxis.labelTextColor = NSColor.labelColor
-        lineChart.leftAxis.labelTextColor = NSColor.labelColor
-        lineChart.rightAxis.labelTextColor = NSColor.labelColor
-        lineChart.drawBordersEnabled = true
-        lineChart.borderColor = NSColor.secondaryLabelColor
+        lineChart.reset()
     }
     // 刷新内容
     @IBAction func refreshChart(_ sender: Any) {

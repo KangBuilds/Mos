@@ -2,15 +2,6 @@
   "originHash" : "cbdd3e98dceb33f1d8c60bd4f8b77a6dce7375a680fa9378f22fc5212378a305",
   "pins" : [
     {
-      "identity" : "charts",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/danielgindi/Charts",
-      "state" : {
-        "revision" : "dd9c72e3d7e751e769971092a6bd72d39198ae63",
-        "version" : "5.1.0"
-      }
-    },
-    {
       "identity" : "loginservicekit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Clipy/LoginServiceKit",
