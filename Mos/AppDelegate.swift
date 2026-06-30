@@ -129,7 +129,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         LogiUsageBootstrap.installOptionsObservers()
         LogiUsageBootstrap.refreshAll()
         startWithAccessibilityPermissionsChecker(nil)
-        UpdateManager.shared.scheduleCheckOnAppStartIfNeeded()
     }
 
     // 用户双击打开应用程序
