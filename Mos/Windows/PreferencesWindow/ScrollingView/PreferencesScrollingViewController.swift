@@ -20,8 +20,6 @@ class PreferencesScrollingViewController: NSViewController, ScrollOptionsContext
     @IBOutlet weak var dashKeyDelButton: NSButton!
     @IBOutlet weak var toggleKeyBindButton: NSButton!
     @IBOutlet weak var toggleKeyDelButton: NSButton!
-    @IBOutlet weak var disableKeyBindButton: NSButton!
-    @IBOutlet weak var disableKeyDelButton: NSButton!
     @IBOutlet weak var scrollStepSlider: NSSlider!
     @IBOutlet weak var scrollStepInput: NSTextField!
     @IBOutlet weak var scrollStepStepper: NSStepper!
@@ -107,17 +105,6 @@ class PreferencesScrollingViewController: NSViewController, ScrollOptionsContext
         getTargetApplicationScrollOptions().toggle = nil
         syncViewWithOptions()
     }
-    // 禁用键 - 点击触发录制
-    @IBAction func disableKeyButtonClick(_ sender: NSButton) {
-        currentRecordingPopup = sender
-        keyRecorder.startRecording(from: sender, mode: .singleKey)
-    }
-    // 禁用键 - 清除绑定
-    @IBAction func disableKeyDelButtonClick(_ sender: NSButton) {
-        getTargetApplicationScrollOptions().block = nil
-        syncViewWithOptions()
-    }
-    
     // 步长
     @IBAction func scrollStepSliderChange(_ sender: NSSlider) {
         setScrollStep(value: sender.doubleValue)
@@ -200,8 +187,6 @@ extension PreferencesScrollingViewController {
         updateHotkeyButton(dashKeyBindButton, delButton: dashKeyDelButton, hotkey: scroll.dash, enabled: isNotInherit)
         // 转换键
         updateHotkeyButton(toggleKeyBindButton, delButton: toggleKeyDelButton, hotkey: scroll.toggle, enabled: isNotInherit)
-        // 禁用键
-        updateHotkeyButton(disableKeyBindButton, delButton: disableKeyDelButton, hotkey: scroll.block, enabled: isNotInherit)
         // 步长
         let step = scroll.step
         scrollStepSlider.doubleValue = step
@@ -355,8 +340,6 @@ extension PreferencesScrollingViewController: KeyRecorderDelegate {
             getTargetApplicationScrollOptions().dash = hotkey
         } else if popup === toggleKeyBindButton {
             getTargetApplicationScrollOptions().toggle = hotkey
-        } else if popup === disableKeyBindButton {
-            getTargetApplicationScrollOptions().block = hotkey
         }
 
         currentRecordingPopup = nil

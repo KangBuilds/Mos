@@ -61,7 +61,6 @@ enum LogiUsageBootstrap {
             switch role {
             case .dash:   return Options.shared.scroll.dash
             case .toggle: return Options.shared.scroll.toggle
-            case .block:  return Options.shared.scroll.block
             }
         }()
         guard let h = hotkey, h.type == .mouse, LogiCenter.shared.isLogiCode(h.code) else { return [] }
@@ -74,7 +73,6 @@ enum LogiUsageBootstrap {
             switch role {
             case .dash:   return app.scroll.dash
             case .toggle: return app.scroll.toggle
-            case .block:  return app.scroll.block
             }
         }()
         guard let h = hotkey, h.type == .mouse, LogiCenter.shared.isLogiCode(h.code) else { return [] }

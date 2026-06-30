@@ -132,7 +132,6 @@ struct SystemShortcut {
                 // Mos 鼠标滚动
                 case "mosScrollDash": return "speedometer"
                 case "mosScrollToggle": return "arrow.left.arrow.right"
-                case "mosScrollBlock": return "hand.raised"
                 // 修饰键
                 case "modifierShift": return "shift"
                 case "modifierOption": return "option"
@@ -323,7 +322,6 @@ struct SystemShortcut {
         // Mos 鼠标滚动
         "mosScrollDash": mosScrollDash,
         "mosScrollToggle": mosScrollToggle,
-        "mosScrollBlock": mosScrollBlock,
         // 修饰键
         "modifierShift": modifierShift, "modifierOption": modifierOption,
         "modifierControl": modifierControl, "modifierCommand": modifierCommand,
@@ -410,7 +408,6 @@ struct SystemShortcut {
 
     static let mosScrollDash = Shortcut("mosScrollDash", 0xFFFC, NSEvent.ModifierFlags(rawValue: 0), executionMode: .stateful)
     static let mosScrollToggle = Shortcut("mosScrollToggle", 0xFFFC, NSEvent.ModifierFlags(rawValue: 1), executionMode: .stateful)
-    static let mosScrollBlock = Shortcut("mosScrollBlock", 0xFFFC, NSEvent.ModifierFlags(rawValue: 2), executionMode: .stateful)
 
     // MARK: - Modifier Key Actions
     // 预定义单修饰键动作 (复用 custom modifier 的 stateful 执行语义)
@@ -456,7 +453,7 @@ struct SystemShortcut {
     /// Mos 鼠标滚动动作分类
     static let mosMouseScrollCategory: (category: String, shortcuts: [Shortcut]) = (
         "categoryMosMouseScroll", [
-            mosScrollDash, mosScrollToggle, mosScrollBlock
+            mosScrollDash, mosScrollToggle
         ]
     )
 

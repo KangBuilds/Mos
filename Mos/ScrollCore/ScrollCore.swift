@@ -22,14 +22,11 @@ class ScrollCore: ScrollActionPort {
     var toggleScroll = false {
         didSet { ScrollPoster.shared.updateShifting(enable: toggleScroll) }
     }
-    var blockSmooth = false
     // 非修饰键热键的按下状态跟踪
     var dashKeyHeld = false
     var toggleKeyHeld = false
-    var blockKeyHeld = false
     private var mosDashActionCount = 0
     private var mosToggleActionCount = 0
-    private var mosBlockActionCount = 0
     // 例外应用数据
     var application: Application?
     var currentApplication: Application? // 用于区分按下热键及抬起时的作用目标
@@ -101,16 +98,16 @@ class ScrollCore: ScrollActionPort {
             speed = Options.shared.scroll.speed,
             duration = Options.shared.scroll.durationTransition
         if let targetApplication = ScrollCore.shared.application {
-            enableSmooth = targetApplication.isSmooth(ScrollCore.shared.blockSmooth)
-            enableSmoothVertical = targetApplication.isSmoothVertical(ScrollCore.shared.blockSmooth)
-            enableSmoothHorizontal = targetApplication.isSmoothHorizontal(ScrollCore.shared.blockSmooth)
+            enableSmooth = targetApplication.isSmooth()
+            enableSmoothVertical = targetApplication.isSmoothVertical()
+            enableSmoothHorizontal = targetApplication.isSmoothHorizontal()
             enableReverseVertical = targetApplication.isReverseVertical()
             enableReverseHorizontal = targetApplication.isReverseHorizontal()
             step = targetApplication.getStep()
             speed = targetApplication.getSpeed()
             duration = targetApplication.getDuration()
         } else if !Options.shared.application.allowlist {
-            enableSmooth = Options.shared.scroll.smooth && !ScrollCore.shared.blockSmooth
+            enableSmooth = Options.shared.scroll.smooth
             enableSmoothVertical = enableSmooth && Options.shared.scroll.smoothVertical
             enableSmoothHorizontal = enableSmooth && Options.shared.scroll.smoothHorizontal
             let allowReverse = Options.shared.scroll.reverse
@@ -200,7 +197,6 @@ class ScrollCore: ScrollActionPort {
     /// key-up 时按 code 清除, 不依赖当前 app 的热键配置, 避免跨应用释放时状态卡死
     private var hidDashHeldCode: UInt16?
     private var hidToggleHeldCode: UInt16?
-    private var hidBlockHeldCode: UInt16?
 
     func handleMosScrollAction(role: ScrollRole, isDown: Bool) {
         assertMainThread()
@@ -211,9 +207,6 @@ class ScrollCore: ScrollActionPort {
         case .toggle:
             mosToggleActionCount = updatedActionCount(mosToggleActionCount, isDown: isDown)
             refreshToggleState()
-        case .block:
-            mosBlockActionCount = updatedActionCount(mosBlockActionCount, isDown: isDown)
-            refreshBlockState()
         }
     }
 
@@ -233,11 +226,7 @@ class ScrollCore: ScrollActionPort {
         toggleScroll = toggleKeyHeld || mosToggleActionCount > 0
     }
 
-    private func refreshBlockState() {
-        blockSmooth = blockKeyHeld || mosBlockActionCount > 0
-    }
-
-    /// 处理来自 Logitech HID++ 的按键事件, 匹配 dash/toggle/block 滚动热键
+    /// 处理来自 Logitech HID++ 的按键事件, 匹配 dash/toggle 滚动热键
     @discardableResult
     func handleScrollHotkey(code: UInt16, isDown: Bool) -> Bool {
         assertMainThread()
@@ -256,12 +245,6 @@ class ScrollCore: ScrollActionPort {
                 refreshToggleState()
                 matched = true
             }
-            if hidBlockHeldCode == code {
-                blockKeyHeld = false
-                hidBlockHeldCode = nil
-                refreshBlockState()
-                matched = true
-            }
             return matched
         }
 
@@ -270,7 +253,6 @@ class ScrollCore: ScrollActionPort {
 
         let dashHotkey = ScrollUtils.shared.optionsDashKey(application: application)
         let toggleHotkey = ScrollUtils.shared.optionsToggleKey(application: application)
-        let blockHotkey = ScrollUtils.shared.optionsBlockKey(application: application)
 
         var matched = false
 
@@ -286,19 +268,13 @@ class ScrollCore: ScrollActionPort {
             refreshToggleState()
             matched = true
         }
-        if let h = blockHotkey, h.type == .mouse, h.code == code {
-            blockKeyHeld = true
-            hidBlockHeldCode = code
-            refreshBlockState()
-            matched = true
-        }
 
         return matched
     }
 
     // MARK: - 热键事件处理 (CGEventTap)
     let hotkeyEventCallBack: CGEventTapCallBack = { (proxy, type, event, refcon) in
-        // 跳过 Mos 合成事件, 避免 executeCustom 的 flagsChanged 误触发 dash/toggle/block
+        // 跳过 Mos 合成事件, 避免 executeCustom 的 flagsChanged 误触发 dash/toggle
         if event.getIntegerValueField(.eventSourceUserData) == MosEventMarker.syntheticCustom {
             return nil  // listenOnly tap 返回值无影响
         }
@@ -326,7 +302,6 @@ class ScrollCore: ScrollActionPort {
         // 获取配置的热键
         let dashHotkey = ScrollUtils.shared.optionsDashKey(application: ScrollCore.shared.application)
         let toggleHotkey = ScrollUtils.shared.optionsToggleKey(application: ScrollCore.shared.application)
-        let blockHotkey = ScrollUtils.shared.optionsBlockKey(application: ScrollCore.shared.application)
 
         // 检测热键是否匹配并更新状态
         func checkAndUpdateHotkey(_ hotkey: ScrollHotkey?, keyHeld: inout Bool) -> Bool? {
@@ -356,11 +331,6 @@ class ScrollCore: ScrollActionPort {
             ScrollCore.shared.toggleKeyHeld = isPressed
             ScrollCore.shared.refreshToggleState()
         }
-        // Block
-        if let isPressed = checkAndUpdateHotkey(blockHotkey, keyHeld: &ScrollCore.shared.blockKeyHeld) {
-            ScrollCore.shared.blockKeyHeld = isPressed
-            ScrollCore.shared.refreshBlockState()
-        }
 
         // 处理抬起时焦点 App 变化
         let isAppTargetChanged = ScrollCore.shared.currentApplication != ScrollCore.shared.application
@@ -369,10 +339,8 @@ class ScrollCore: ScrollActionPort {
             // 重置按键状态
             ScrollCore.shared.dashKeyHeld = false
             ScrollCore.shared.toggleKeyHeld = false
-            ScrollCore.shared.blockKeyHeld = false
             ScrollCore.shared.refreshDashState()
             ScrollCore.shared.refreshToggleState()
-            ScrollCore.shared.refreshBlockState()
             // 并更新记录器
             ScrollCore.shared.currentApplication = nil
         }

@@ -79,8 +79,7 @@ extension Application {
         return inherit ? Options.shared.scroll.durationTransition : scroll.durationTransition
     }
     // 功能
-    func isSmooth(_ block: Bool) -> Bool {
-        if block { return false }
+    func isSmooth() -> Bool {
         if !Options.shared.scroll.smooth { return false }
         return resolvedScrollOptions().smooth
     }
@@ -100,15 +99,13 @@ extension Application {
         let target = resolvedScrollOptions()
         return target.reverse && target.reverseHorizontal
     }
-    func isSmoothVertical(_ block: Bool) -> Bool {
-        if block { return false }
+    func isSmoothVertical() -> Bool {
         if !Options.shared.scroll.smooth { return false }
         if !Options.shared.scroll.smoothVertical { return false }
         let target = resolvedScrollOptions()
         return target.smooth && target.smoothVertical
     }
-    func isSmoothHorizontal(_ block: Bool) -> Bool {
-        if block { return false }
+    func isSmoothHorizontal() -> Bool {
         if !Options.shared.scroll.smooth { return false }
         if !Options.shared.scroll.smoothHorizontal { return false }
         let target = resolvedScrollOptions()

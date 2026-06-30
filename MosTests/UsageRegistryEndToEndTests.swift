@@ -54,11 +54,11 @@ final class UsageRegistryEndToEndTests: XCTestCase {
         registry.setUsage(source: .appScroll(key: key, role: .dash), codes: [1007])
         XCTAssertNotNil(registry.sourcesForTests[.appScroll(key: key, role: .dash)])
 
-        // inherit toggled true -> clear all 3 roles
-        for role: ScrollRole in [.dash, .toggle, .block] {
+        // inherit toggled true -> clear all roles
+        for role: ScrollRole in [.dash, .toggle] {
             registry.setUsage(source: .appScroll(key: key, role: role), codes: [])
         }
-        for role: ScrollRole in [.dash, .toggle, .block] {
+        for role: ScrollRole in [.dash, .toggle] {
             XCTAssertNil(registry.sourcesForTests[.appScroll(key: key, role: role)])
         }
 
@@ -66,11 +66,11 @@ final class UsageRegistryEndToEndTests: XCTestCase {
         registry.setUsage(source: .appScroll(key: key, role: .toggle), codes: [1005])
         XCTAssertEqual(registry.sourcesForTests[.appScroll(key: key, role: .toggle)], [1005])
 
-        // app deletion -> clear all 3 again
-        for role: ScrollRole in [.dash, .toggle, .block] {
+        // app deletion -> clear all roles again
+        for role: ScrollRole in [.dash, .toggle] {
             registry.setUsage(source: .appScroll(key: key, role: role), codes: [])
         }
-        for role: ScrollRole in [.dash, .toggle, .block] {
+        for role: ScrollRole in [.dash, .toggle] {
             XCTAssertNil(registry.sourcesForTests[.appScroll(key: key, role: role)])
         }
     }

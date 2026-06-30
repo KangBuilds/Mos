@@ -145,11 +145,4 @@ class ScrollUtils {
             return Options.shared.scroll.toggle
         }
     }
-    func optionsBlockKey(application: Application?) -> ScrollHotkey? {
-        if let targetApplication = application {
-            return targetApplication.inherit ? Options.shared.scroll.block : targetApplication.scroll.block
-        } else {
-            return Options.shared.scroll.block
-        }
-    }
 }

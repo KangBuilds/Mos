@@ -900,7 +900,7 @@ final class ButtonBindingTests: XCTestCase {
         let mosItems = menu.items[mosIndex].submenu?.items.compactMap {
             ($0.representedObject as? SystemShortcut.Shortcut)?.identifier
         }
-        XCTAssertEqual(mosItems, ["mosScrollDash", "mosScrollToggle", "mosScrollBlock"])
+        XCTAssertEqual(mosItems, ["mosScrollDash", "mosScrollToggle"])
     }
 
     func testBuildShortcutMenu_includesOpenTargetEntryAboveCustom() {

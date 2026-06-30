@@ -14,10 +14,8 @@ final class InputProcessorTests: XCTestCase {
         ScrollCore.shared.dashScroll = false
         ScrollCore.shared.dashAmplification = 1.0
         ScrollCore.shared.toggleScroll = false
-        ScrollCore.shared.blockSmooth = false
         ScrollCore.shared.dashKeyHeld = false
         ScrollCore.shared.toggleKeyHeld = false
-        ScrollCore.shared.blockKeyHeld = false
         ShortcutExecutor.shared.scrollActionPort = ScrollCore.shared
         ShortcutExecutor.shared.modifierFlagsProvider = InputProcessor.shared
     }
@@ -27,10 +25,8 @@ final class InputProcessorTests: XCTestCase {
         ScrollCore.shared.dashScroll = false
         ScrollCore.shared.dashAmplification = 1.0
         ScrollCore.shared.toggleScroll = false
-        ScrollCore.shared.blockSmooth = false
         ScrollCore.shared.dashKeyHeld = false
         ScrollCore.shared.toggleKeyHeld = false
-        ScrollCore.shared.blockKeyHeld = false
         MouseInteractionSessionController.shared.clearAllSessions()
         MouseInteractionSessionController.shared.clearTestingMotionTapHooks()
         ShortcutExecutor.shared.clearTestingMouseEventObserver()
@@ -274,7 +270,7 @@ final class InputProcessorTests: XCTestCase {
     }
 
     func testResolveAction_mosScrollActionsAreStateful() {
-        for identifier in ["mosScrollDash", "mosScrollToggle", "mosScrollBlock"] {
+        for identifier in ["mosScrollDash", "mosScrollToggle"] {
             guard let action = ShortcutExecutor.shared.resolveAction(named: identifier) else {
                 return XCTFail("Expected \(identifier) action to resolve")
             }
@@ -508,25 +504,6 @@ final class InputProcessorTests: XCTestCase {
         XCTAssertFalse(ScrollCore.shared.toggleScroll)
     }
 
-    func testProcess_mosScrollBlock_downAndUpControlsBlockState() {
-        let trigger = RecordedEvent(type: .mouse, code: 5, modifiers: 0, displayComponents: ["🖱6"], deviceFilter: nil)
-        let binding = ButtonBinding(triggerEvent: trigger, systemShortcutName: "mosScrollBlock", isEnabled: true)
-        Options.shared.buttons.binding = [binding]
-        ButtonUtils.shared.invalidateCache()
-
-        XCTAssertEqual(
-            InputProcessor.shared.process(InputEvent(type: .mouse, code: 5, modifiers: .init(rawValue: 0), phase: .down, source: .hidPP, device: nil)),
-            .consumed
-        )
-        XCTAssertTrue(ScrollCore.shared.blockSmooth)
-
-        XCTAssertEqual(
-            InputProcessor.shared.process(InputEvent(type: .mouse, code: 5, modifiers: .init(rawValue: 0), phase: .up, source: .hidPP, device: nil)),
-            .consumed
-        )
-        XCTAssertFalse(ScrollCore.shared.blockSmooth)
-    }
-
     func testProcess_multipleMosScrollDashTriggers_releaseOneKeepsDashActive() {
         let firstTrigger = RecordedEvent(type: .mouse, code: 3, modifiers: 0, displayComponents: ["🖱4"], deviceFilter: nil)
         let secondTrigger = RecordedEvent(type: .mouse, code: 4, modifiers: 0, displayComponents: ["🖱5"], deviceFilter: nil)
@@ -569,11 +546,9 @@ final class InputProcessorTests: XCTestCase {
 
         let originalDash = Options.shared.scroll.dash
         let originalToggle = Options.shared.scroll.toggle
-        let originalBlock = Options.shared.scroll.block
         defer {
             Options.shared.scroll.dash = originalDash
             Options.shared.scroll.toggle = originalToggle
-            Options.shared.scroll.block = originalBlock
         }
 
         let cases: [Case] = [
@@ -587,11 +562,6 @@ final class InputProcessorTests: XCTestCase {
                 configureLegacyHotkey: { Options.shared.scroll.toggle = $0 },
                 isRoleActive: { ScrollCore.shared.toggleScroll }
             ),
-            Case(
-                shortcutName: "mosScrollBlock",
-                configureLegacyHotkey: { Options.shared.scroll.block = $0 },
-                isRoleActive: { ScrollCore.shared.blockSmooth }
-            ),
         ]
 
         for testCase in cases {
@@ -599,13 +569,10 @@ final class InputProcessorTests: XCTestCase {
             ScrollCore.shared.dashScroll = false
             ScrollCore.shared.dashAmplification = 1.0
             ScrollCore.shared.toggleScroll = false
-            ScrollCore.shared.blockSmooth = false
             ScrollCore.shared.dashKeyHeld = false
             ScrollCore.shared.toggleKeyHeld = false
-            ScrollCore.shared.blockKeyHeld = false
             Options.shared.scroll.dash = nil
             Options.shared.scroll.toggle = nil
-            Options.shared.scroll.block = nil
 
             let trigger = RecordedEvent(type: .mouse, code: 2, modifiers: 0, displayComponents: ["🖱M"], deviceFilter: nil)
             let binding = ButtonBinding(triggerEvent: trigger, systemShortcutName: testCase.shortcutName, isEnabled: true)

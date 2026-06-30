@@ -190,7 +190,5 @@ final class ScrollHotkeyTests: XCTestCase {
         XCTAssertEqual(defaults.dash?.code, KeyCode.optionL)
         XCTAssertEqual(defaults.toggle?.type, .keyboard)
         XCTAssertEqual(defaults.toggle?.code, KeyCode.shiftL)
-        XCTAssertEqual(defaults.block?.type, .keyboard)
-        XCTAssertEqual(defaults.block?.code, KeyCode.commandL)
     }
 }

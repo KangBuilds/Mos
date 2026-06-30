@@ -13,5 +13,4 @@ public enum UsageSource: Hashable {
 public enum ScrollRole: Hashable, CaseIterable {
     case dash
     case toggle
-    case block
 }

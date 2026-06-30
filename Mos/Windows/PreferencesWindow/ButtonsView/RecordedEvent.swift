@@ -21,7 +21,7 @@ enum EventType: String, Codable {
 
 // MARK: - ScrollHotkey
 /// 滚动热键绑定 - 轻量结构，仅存储类型和按键码
-/// 用于 ScrollingView 的 dash/toggle/block 热键配置
+/// 用于 ScrollingView 的 dash/toggle 热键配置
 struct ScrollHotkey: Codable, Equatable {
 
     // MARK: - 数据字段

@@ -126,9 +126,6 @@ class OPTIONS_SCROLL_DEFAULT: Codable {
     var toggle: ScrollHotkey? = ScrollHotkey(type: .keyboard, code: KeyCode.shiftL) {
         didSet {Options.shared.markChanged(scrollContainer: self)}
     }
-    var block: ScrollHotkey? = ScrollHotkey(type: .keyboard, code: KeyCode.commandL) {
-        didSet {Options.shared.markChanged(scrollContainer: self)}
-    }
     var step = 33.6 {
         didSet {Options.shared.markChanged(scrollContainer: self)}
     }
@@ -175,7 +172,6 @@ extension OPTIONS_SCROLL_DEFAULT: Equatable {
             l.reverseHorizontal == r.reverseHorizontal &&
             l.dash == r.dash &&
             l.toggle == r.toggle &&
-            l.block == r.block &&
             l.step == r.step &&
             l.speed == r.speed &&
             l.duration == r.duration &&

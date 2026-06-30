@@ -21,10 +21,8 @@ final class ScrollCoreHotkeyTests: XCTestCase {
         ScrollCore.shared.dashScroll = false
         ScrollCore.shared.dashAmplification = 1.0
         ScrollCore.shared.toggleScroll = false
-        ScrollCore.shared.blockSmooth = false
         ScrollCore.shared.dashKeyHeld = false
         ScrollCore.shared.toggleKeyHeld = false
-        ScrollCore.shared.blockKeyHeld = false
     }
 
     override func tearDown() {
@@ -32,10 +30,8 @@ final class ScrollCoreHotkeyTests: XCTestCase {
         ScrollCore.shared.dashScroll = false
         ScrollCore.shared.dashAmplification = 1.0
         ScrollCore.shared.toggleScroll = false
-        ScrollCore.shared.blockSmooth = false
         ScrollCore.shared.dashKeyHeld = false
         ScrollCore.shared.toggleKeyHeld = false
-        ScrollCore.shared.blockKeyHeld = false
         super.tearDown()
     }
 
@@ -70,7 +66,7 @@ final class ScrollCoreHotkeyTests: XCTestCase {
     func testKeyDown_withNoHotkeyConfig_returnsFalse() {
         // 在没有配置 HID++ 鼠标按键热键时 (默认热键是键盘修饰键),
         // mouse type 的 code 不会匹配, 应返回 false
-        // 默认: dash=optionL(keyboard), toggle=shiftL(keyboard), block=commandL(keyboard)
+        // 默认: dash=optionL(keyboard), toggle=shiftL(keyboard)
         let result = ScrollCore.shared.handleScrollHotkey(code: 100, isDown: true)
         // 由于默认热键是 keyboard 类型, 而 HID++ 匹配要求 type == .mouse,
         // 所以不会匹配
@@ -114,22 +110,6 @@ final class ScrollCoreHotkeyTests: XCTestCase {
         XCTAssertTrue(upResult)
         XCTAssertFalse(ScrollCore.shared.toggleScroll)
         XCTAssertFalse(ScrollCore.shared.toggleKeyHeld)
-    }
-
-    func testKeyDown_thenKeyUp_blockHotkey() {
-        let originalBlock = Options.shared.scroll.block
-        Options.shared.scroll.block = ScrollHotkey(type: .mouse, code: 70)
-        defer { Options.shared.scroll.block = originalBlock }
-
-        let downResult = ScrollCore.shared.handleScrollHotkey(code: 70, isDown: true)
-        XCTAssertTrue(downResult)
-        XCTAssertTrue(ScrollCore.shared.blockSmooth)
-        XCTAssertTrue(ScrollCore.shared.blockKeyHeld)
-
-        let upResult = ScrollCore.shared.handleScrollHotkey(code: 70, isDown: false)
-        XCTAssertTrue(upResult)
-        XCTAssertFalse(ScrollCore.shared.blockSmooth)
-        XCTAssertFalse(ScrollCore.shared.blockKeyHeld)
     }
 
     // MARK: - 多个热键同时按下
@@ -188,27 +168,22 @@ final class ScrollCoreHotkeyTests: XCTestCase {
     func testSameCode_matchesAllConfiguredHotkeys() {
         let originalDash = Options.shared.scroll.dash
         let originalToggle = Options.shared.scroll.toggle
-        let originalBlock = Options.shared.scroll.block
         // 配置所有热键为同一 code
         Options.shared.scroll.dash = ScrollHotkey(type: .mouse, code: 80)
         Options.shared.scroll.toggle = ScrollHotkey(type: .mouse, code: 80)
-        Options.shared.scroll.block = ScrollHotkey(type: .mouse, code: 80)
         defer {
             Options.shared.scroll.dash = originalDash
             Options.shared.scroll.toggle = originalToggle
-            Options.shared.scroll.block = originalBlock
         }
 
         let downResult = ScrollCore.shared.handleScrollHotkey(code: 80, isDown: true)
         XCTAssertTrue(downResult)
         XCTAssertTrue(ScrollCore.shared.dashScroll)
         XCTAssertTrue(ScrollCore.shared.toggleScroll)
-        XCTAssertTrue(ScrollCore.shared.blockSmooth)
 
         let upResult = ScrollCore.shared.handleScrollHotkey(code: 80, isDown: false)
         XCTAssertTrue(upResult)
         XCTAssertFalse(ScrollCore.shared.dashScroll)
         XCTAssertFalse(ScrollCore.shared.toggleScroll)
-        XCTAssertFalse(ScrollCore.shared.blockSmooth)
     }
 }

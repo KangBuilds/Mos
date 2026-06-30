@@ -53,7 +53,6 @@ enum MouseButtonActionKind {
 enum MosScrollActionKind {
     case dash
     case toggle
-    case block
 
     init?(shortcutIdentifier: String) {
         switch shortcutIdentifier {
@@ -61,8 +60,6 @@ enum MosScrollActionKind {
             self = .dash
         case "mosScrollToggle":
             self = .toggle
-        case "mosScrollBlock":
-            self = .block
         default:
             return nil
         }
@@ -74,8 +71,6 @@ enum MosScrollActionKind {
             return .dash
         case .toggle:
             return .toggle
-        case .block:
-            return .block
         }
     }
 }
@@ -130,7 +125,7 @@ class ShortcutExecutor {
 
     private var testingMouseEventObserver: ((CGEvent) -> Void)?
 
-    /// 快速识别 Mos Scroll 三个 stateful 动作, 供事件热路径避免完整 action 解析。
+    /// 快速识别 Mos Scroll stateful 动作, 供事件热路径避免完整 action 解析。
     static func isMosScrollActionIdentifier(_ shortcutName: String) -> Bool {
         MosScrollActionKind(shortcutIdentifier: shortcutName) != nil
     }
